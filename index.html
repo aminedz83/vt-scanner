@@ -868,7 +868,8 @@ function parseResources(b,secs,ddb){
   try{return parseResourceDir(b,rsrcOff);}catch(e){return null;}
 }
 function findVersionMagic(b,off,sz){
-  const magic=[0xFE,0xEF,0x04,0xBD];
+  // VS_FIXEDFILEINFO dwSignature = 0xFEEF04BD → stocké little-endian : BD 04 EF FE
+  const magic=[0xBD,0x04,0xEF,0xFE];
   // Cherche dans la zone ressource d'abord
   for(let i=off;i<off+sz-4&&i<b.length-4;i++)
     if(b[i]===magic[0]&&b[i+1]===magic[1]&&b[i+2]===magic[2]&&b[i+3]===magic[3]) return i;
@@ -1595,7 +1596,8 @@ function smStringsPaddingFn(b){
   return count>0?`Strings padding → ${count} zones`:null;
 }
 function smVersionInfoFn(b){
-  const magic=[0xFE,0xEF,0x04,0xBD];
+  // dwSignature 0xFEEF04BD → little-endian : BD 04 EF FE
+  const magic=[0xBD,0x04,0xEF,0xFE];
   for(let i=0;i<b.length-52;i++){
     if(b[i]===magic[0]&&b[i+1]===magic[1]&&b[i+2]===magic[2]&&b[i+3]===magic[3]){
       const maj=randInt(1,9),min=randInt(0,9),build=randInt(1000,9999),rev=randInt(0,999);
