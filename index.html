@@ -82,7 +82,21 @@
   .malicious{color:var(--red);font-weight:700;}
   .clean{color:var(--green);font-weight:700;}
   .dl-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:linear-gradient(180deg,#f5fff5,#cff0cf);border:1px solid #5a9b5a;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;margin-top:8px;}
-  .empty-msg{color:#888;font-size:13px;text-align:center;padding:20px;}
+  .import-list{font-size:11px;font-family:monospace;background:#fff;border:1px solid var(--win-border);border-radius:3px;max-height:200px;overflow-y:auto;padding:6px;}
+  .import-dll{font-weight:700;color:var(--panel-blue);padding:2px 0;}
+  .import-fn{color:#555;padding-left:14px;padding-top:1px;}
+  .pe-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;border:1px solid;}
+  .chip-blue{background:#e3f2fd;color:#1565c0;border-color:#90caf9;}
+  .chip-purple{background:#f3e5f5;color:#6a1b9a;border-color:#ce93d8;}
+  .chip-red{background:#ffebee;color:#b71c1c;border-color:#ef9a9a;}
+  .chip-orange{background:#fff8e1;color:#e65100;border-color:#ffcc02;}
+  .chip-green{background:#e8f5e9;color:#1b5e20;border-color:#a5d6a7;}
+  .res-item{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;border-bottom:1px dashed #ddd;}
+  .icon-preview-wrap{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
+  .icon-preview{image-rendering:pixelated;border:1px solid var(--win-border);border-radius:2px;background:#777;}
+  .overlay-bar{background:#fff3cd;border:1px solid #ffc107;border-radius:4px;padding:8px;font-size:12px;}
+
   @media(max-width:480px){.pe-grid{grid-template-columns:1fr;}.facts b{min-width:90px;}body{padding:8px;}.tab{padding:6px 9px;font-size:11px;}}
 </style>
 </head>
@@ -216,6 +230,46 @@
           <button id="peRecalcChecksum">Recalculer</button>
         </div>
         <div style="font-size:11px;color:#888;">Recalculé automatiquement à l'export.</div>
+      </fieldset>
+
+      <!-- Architecture & info -->
+      <fieldset id="peInfoBox" class="hidden">
+        <legend>📊 Architecture & Structure</legend>
+        <div class="pe-chips" id="peInfoChips"></div>
+        <div style="font-size:12px;color:#555;" id="peEntryInfo"></div>
+      </fieldset>
+
+      <!-- Signature numérique -->
+      <fieldset id="peSigBox" class="hidden">
+        <legend>🔏 Signature Numérique (Authenticode)</legend>
+        <div id="peSigInfo" style="font-size:13px;margin-bottom:8px;"></div>
+        <button id="peRemoveSig">🗑️ Supprimer la signature</button>
+        <div style="font-size:11px;color:#888;margin-top:4px;">La suppression invalide la signature mais ne casse pas l'exécutable.</div>
+      </fieldset>
+
+      <!-- Table d'imports -->
+      <fieldset id="peImportBox" class="hidden">
+        <legend>📦 Table d'imports (DLL dépendances)</legend>
+        <div class="import-list" id="peImportList"></div>
+      </fieldset>
+
+      <!-- Ressources -->
+      <fieldset id="peResourceBox" class="hidden">
+        <legend>🎨 Ressources (VersionInfo / Manifest / Icônes)</legend>
+        <div id="peResourceInfo"></div>
+        <div class="icon-preview-wrap" id="peIconPreviews"></div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="peModVersionInfo" class="hidden">✏️ Modifier VersionInfo</button>
+          <button id="peModManifest" class="hidden">✏️ Modifier Manifest</button>
+          <button id="peRandomIcons" class="hidden">🎲 Randomiser icônes</button>
+        </div>
+      </fieldset>
+
+      <!-- Overlay -->
+      <fieldset id="peOverlayBox" class="hidden">
+        <legend>📎 Overlay détecté</legend>
+        <div class="overlay-bar" id="peOverlayInfo"></div>
+        <button id="peRemoveOverlay" style="margin-top:6px;">🗑️ Supprimer l'overlay</button>
       </fieldset>
 
       <fieldset>
@@ -683,34 +737,263 @@ $("peFileInput").addEventListener("change",()=>{
   r.readAsArrayBuffer(f);
 });
 
+// ─── PE FULL PARSER ──────────────────────────────────────────────────────────
+let peIsPE64=false, peSectionsList=[], peDataDirBase=0, peResources=null;
+
+function parseSectionsList(b,peOff,numSec,optSize){
+  const start=peOff+24+optSize; const list=[];
+  for(let i=0;i<numSec;i++){
+    const o=start+i*40;
+    list.push({name:String.fromCharCode(...b.slice(o,o+8)).replace(/\0/g,''),
+      vsize:readU32LE(b,o+8),va:readU32LE(b,o+12),
+      rawSize:readU32LE(b,o+16),rawOffset:readU32LE(b,o+20),
+      chars:readU32LE(b,o+36),headerOff:o});
+  } return list;
+}
+function rvaToOff(rva,secs){
+  for(const s of secs){
+    const vEnd=s.va+Math.max(s.vsize,s.rawSize);
+    if(rva>=s.va&&rva<vEnd) return rva-s.va+s.rawOffset;
+  } return -1;
+}
+function parseImports(b,secs,ddb){
+  const iRVA=readU32LE(b,ddb+8); if(!iRVA) return [];
+  const iOff=rvaToOff(iRVA,secs); if(iOff<0) return [];
+  const imports=[]; let off=iOff;
+  while(off+20<=b.length){
+    const orig=readU32LE(b,off),nameRVA=readU32LE(b,off+12),first=readU32LE(b,off+16);
+    if(!nameRVA&&!first) break;
+    const nOff=rvaToOff(nameRVA,secs); let dll='';
+    if(nOff>=0) for(let i=nOff;i<b.length&&b[i];i++) dll+=String.fromCharCode(b[i]);
+    const funcs=[]; const thunkRVA=orig||first;
+    if(thunkRVA){
+      let tOff=rvaToOff(thunkRVA,secs);
+      while(tOff>=0&&tOff+4<=b.length){
+        const v=readU32LE(b,tOff); if(!v) break;
+        if(!(v&0x80000000)){
+          const fOff=rvaToOff(v,secs);
+          if(fOff>=0){let fn='';for(let i=fOff+2;i<b.length&&b[i];i++) fn+=String.fromCharCode(b[i]);if(fn) funcs.push(fn);}
+        } else funcs.push(`Ord:${v&0xFFFF}`);
+        tOff+=4; if(funcs.length>=15){funcs.push('…');break;}
+      }
+    }
+    if(dll) imports.push({dll,funcs}); off+=20; if(imports.length>50) break;
+  } return imports;
+}
+function detectOverlay(b,secs){
+  let mx=0;
+  for(const s of secs) if(s.rawOffset&&s.rawSize) mx=Math.max(mx,s.rawOffset+s.rawSize);
+  return mx>0&&b.length>mx?{offset:mx,size:b.length-mx}:null;
+}
+function removeSignature(b,ddb){
+  const o=ddb+32;
+  const fileOff=readU32LE(b,o),sz=readU32LE(b,o+4);
+  if(!fileOff||!sz) return null;
+  b.fill(0,fileOff,Math.min(fileOff+sz,b.length));
+  writeU32LE(b,o,0);writeU32LE(b,o+4,0);
+  return {offset:fileOff,size:sz};
+}
+function parseResourceDir(b,rsrcOff){
+  const read=(off)=>{
+    const named=readU16LE(b,off+12),id=readU16LE(b,off+14);
+    const entries=[]; let eOff=off+16;
+    for(let i=0;i<named+id&&eOff+8<=b.length;i++){
+      entries.push({id:readU32LE(b,eOff),data:readU32LE(b,eOff+4)});
+      eOff+=8;
+    } return entries;
+  };
+  const findType=(tid)=>{
+    const l1=read(rsrcOff);
+    for(const e1 of l1){
+      if((e1.id&0x7FFFFFFF)===tid&&(e1.data&0x80000000)){
+        const l2=read(rsrcOff+(e1.data&0x7FFFFFFF));
+        for(const e2 of l2){
+          if(e2.data&0x80000000){
+            const l3=read(rsrcOff+(e2.data&0x7FFFFFFF));
+            for(const e3 of l3){
+              if(!(e3.data&0x80000000)){
+                const dOff=rsrcOff+e3.data;
+                return {rva:readU32LE(b,dOff),size:readU32LE(b,dOff+4)};
+              }
+            }
+          }
+        }
+      }
+    } return null;
+  };
+  // RT_ICON=3, RT_VERSION=16, RT_MANIFEST=24
+  return {version:findType(16),manifest:findType(24),icons:findType(3)};
+}
+function parseResources(b,secs,ddb){
+  const rsrcRVA=readU32LE(b,ddb+16); if(!rsrcRVA) return null;
+  const rsrcOff=rvaToOff(rsrcRVA,secs); if(rsrcOff<0) return null;
+  try{return parseResourceDir(b,rsrcOff);}catch(e){return null;}
+}
+function findVersionMagic(b,off,sz){
+  const magic=[0xFE,0xEF,0x04,0xBD];
+  for(let i=off;i<off+sz-4&&i<b.length-4;i++)
+    if(b[i]===magic[0]&&b[i+1]===magic[1]&&b[i+2]===magic[2]&&b[i+3]===magic[3])
+      return i;
+  return -1;
+}
+function drawIconOnCanvas(b,off,sz){
+  try{
+    const canvas=document.createElement('canvas');
+    // Cherche BITMAPINFOHEADER (40 bytes)
+    for(let i=off;i<off+sz-40&&i<b.length-40;i++){
+      if(b[i]===40&&!b[i+1]&&!b[i+2]&&!b[i+3]){
+        const w=readU32LE(b,i+4);
+        const h=Math.abs((readU32LE(b,i+8)<<0));
+        const bpp=readU16LE(b,i+14);
+        if(w>=16&&w<=256&&(bpp===32||bpp===24||bpp===8||bpp===4)){
+          const size=Math.min(w,64);
+          canvas.width=size;canvas.height=size;
+          canvas.className='icon-preview';
+          canvas.style.width=size+'px';canvas.style.height=size+'px';
+          const ctx=canvas.getContext('2d');
+          const imgData=ctx.createImageData(size,size);
+          const pixOff=i+40;
+          const rowSize=Math.ceil(w*bpp/32)*4;
+          for(let row=0;row<size;row++){
+            for(let col=0;col<size;col++){
+              const srcRow=h-1-Math.floor(row*h/size);
+              const srcCol=Math.floor(col*w/size);
+              let r=128,g=128,bl=128,a=255;
+              if(bpp===32){
+                const pOff=pixOff+srcRow*rowSize+srcCol*4;
+                if(pOff+4<=b.length){bl=b[pOff];g=b[pOff+1];r=b[pOff+2];a=b[pOff+3]||255;}
+              } else if(bpp===24){
+                const pOff=pixOff+srcRow*rowSize+srcCol*3;
+                if(pOff+3<=b.length){bl=b[pOff];g=b[pOff+1];r=b[pOff+2];}
+              }
+              const idx=(row*size+col)*4;
+              imgData.data[idx]=r;imgData.data[idx+1]=g;imgData.data[idx+2]=bl;imgData.data[idx+3]=a;
+            }
+          }
+          ctx.putImageData(imgData,0,0);
+          return canvas;
+        }
+      }
+    }
+  }catch(e){}
+  return null;
+}
+
 function parsePE(){
   const b=peBytes;
   if(b[0]!==0x4D||b[1]!==0x5A){alert("Pas un fichier PE valide (MZ manquant).");return;}
   const peOff=readU32LE(b,0x3C);
   if(b[peOff]!==0x50||b[peOff+1]!==0x45){alert("Signature PE introuvable.");return;}
-  peOffsets={pe:peOff,timestamp:peOff+8,linkMajor:peOff+26,linkMinor:peOff+27,osMajor:peOff+64,osMinor:peOff+66,imgMajor:peOff+68,imgMinor:peOff+70,subsystem:peOff+92,dllFlags:peOff+94,checksum:peOff+88,numSections:peOff+6};
+  const magic=readU16LE(b,peOff+24);
+  peIsPE64=(magic===0x020B);
+  const OPT=peOff+24;
+  peDataDirBase=OPT+(peIsPE64?112:96);
+  peOffsets={pe:peOff,timestamp:peOff+8,linkMajor:peOff+26,linkMinor:peOff+27,
+    osMajor:OPT+40,osMinor:OPT+42,imgMajor:OPT+44,imgMinor:OPT+46,
+    subsystem:OPT+68,dllFlags:OPT+70,checksum:OPT+64,numSections:peOff+6};
+
+  // Remplir champs de base
   const ts=readU32LE(b,peOffsets.timestamp);
-  $("peTimestamp").value=ts;
-  $("peTimestampHuman").value=new Date(ts*1000).toLocaleString("fr-FR");
-  $("peLinkMajor").value=b[peOffsets.linkMajor];
-  $("peLinkMinor").value=b[peOffsets.linkMinor];
-  $("peOsMajor").value=readU16LE(b,peOffsets.osMajor);
-  $("peOsMinor").value=readU16LE(b,peOffsets.osMinor);
-  $("peImgMajor").value=readU16LE(b,peOffsets.imgMajor);
-  $("peImgMinor").value=readU16LE(b,peOffsets.imgMinor);
+  $("peTimestamp").value=ts;$("peTimestampHuman").value=new Date(ts*1000).toLocaleString("fr-FR");
+  $("peLinkMajor").value=b[peOffsets.linkMajor];$("peLinkMinor").value=b[peOffsets.linkMinor];
+  $("peOsMajor").value=readU16LE(b,peOffsets.osMajor);$("peOsMinor").value=readU16LE(b,peOffsets.osMinor);
+  $("peImgMajor").value=readU16LE(b,peOffsets.imgMajor);$("peImgMinor").value=readU16LE(b,peOffsets.imgMinor);
   $("peSubsystem").value=readU16LE(b,peOffsets.subsystem);
   $("peDllFlags").value=readU16LE(b,peOffsets.dllFlags).toString(16).toUpperCase();
   $("peChecksum").value="0x"+readU32LE(b,peOffsets.checksum).toString(16).toUpperCase().padStart(8,"0");
+
+  // Sections
   const numSec=readU16LE(b,peOffsets.numSections);
   const optSize=readU16LE(b,peOff+20);
-  let sOff=peOff+24+optSize;
-  let html="<div><b>Nom</b><b>VSize</b><b>RVA</b><b>Caract.</b></div>";
-  for(let i=0;i<numSec;i++){
-    const name=String.fromCharCode(...b.slice(sOff,sOff+8)).replace(/\0/g,"");
-    html+=`<div><span>${name}</span><span>0x${readU32LE(b,sOff+8).toString(16).toUpperCase()}</span><span>0x${readU32LE(b,sOff+12).toString(16).toUpperCase()}</span><span>0x${readU32LE(b,sOff+36).toString(16).toUpperCase()}</span></div>`;
-    sOff+=40;
-  }
-  $("peSectionsView").innerHTML=html;
+  peSectionsList=parseSectionsList(b,peOff,numSec,optSize);
+  let secHtml="<div><b>Nom</b><b>VSize</b><b>RVA</b><b>Caract.</b></div>";
+  for(const s of peSectionsList)
+    secHtml+=`<div><span>${s.name}</span><span>0x${s.vsize.toString(16).toUpperCase()}</span><span>0x${s.va.toString(16).toUpperCase()}</span><span>0x${s.chars.toString(16).toUpperCase()}</span></div>`;
+  $("peSectionsView").innerHTML=secHtml;
+
+  // ── Architecture & info ──
+  const entryRVA=readU32LE(b,OPT+16);
+  const imageBase=peIsPE64?'(64-bit)':('0x'+readU32LE(b,OPT+28).toString(16).toUpperCase());
+  $("peInfoChips").innerHTML=`
+    <span class="chip ${peIsPE64?'chip-blue':'chip-purple'}">${peIsPE64?'PE32+ 64-bit':'PE32 32-bit'}</span>
+    <span class="chip chip-green">Sections: ${numSec}</span>
+    <span class="chip chip-green">ImageBase: ${imageBase}</span>
+    <span class="chip chip-green">EntryPoint: 0x${entryRVA.toString(16).toUpperCase()}</span>
+    <span class="chip chip-green">Linker: ${b[peOffsets.linkMajor]}.${b[peOffsets.linkMinor]}</span>
+  `;
+  $("peInfoBox").classList.remove("hidden");
+
+  // ── Signature numérique ──
+  const sigOff=peDataDirBase+32;
+  const sigFileOff=readU32LE(b,sigOff),sigSz=readU32LE(b,sigOff+4);
+  if(sigFileOff&&sigSz){
+    $("peSigInfo").innerHTML=`<span class="chip chip-red">🔏 Signature présente</span> &nbsp; Offset: 0x${sigFileOff.toString(16).toUpperCase()} — Taille: ${sigSz} octets`;
+    $("peSigBox").classList.remove("hidden");
+  } else $("peSigBox").classList.add("hidden");
+
+  // ── Imports ──
+  try{
+    const imports=parseImports(b,peSectionsList,peDataDirBase);
+    if(imports.length>0){
+      $("peImportList").innerHTML=imports.map(imp=>
+        `<div class="import-dll">📂 ${imp.dll} (${imp.funcs.length} fonctions)</div>`+
+        imp.funcs.slice(0,8).map(f=>`<div class="import-fn">↳ ${f}</div>`).join('')+
+        (imp.funcs.length>8?`<div class="import-fn" style="color:#aaa;">…</div>`:'')).join('');
+      $("peImportBox").classList.remove("hidden");
+    }
+  }catch(e){console.warn('imports:',e);}
+
+  // ── Ressources ──
+  try{
+    peResources=parseResources(b,peSectionsList,peDataDirBase);
+    if(peResources){
+      let resHtml='';
+      const iconWrap=$("peIconPreviews"); iconWrap.innerHTML='';
+
+      if(peResources.version){
+        const vOff=rvaToOff(peResources.version.rva,peSectionsList);
+        const vIdx=vOff>=0?findVersionMagic(b,vOff,peResources.version.size):-1;
+        if(vIdx>=0){
+          const fMaj=readU16LE(b,vIdx+10),fMin=readU16LE(b,vIdx+8);
+          const fBuild=readU16LE(b,vIdx+14),fRev=readU16LE(b,vIdx+12);
+          resHtml+=`<div class="res-item"><span class="chip chip-blue">VersionInfo</span> <span>v${fMaj}.${fMin}.${fBuild}.${fRev}</span></div>`;
+        } else resHtml+=`<div class="res-item"><span class="chip chip-blue">VersionInfo</span> <span>Détecté (structure complexe)</span></div>`;
+        $("peModVersionInfo").classList.remove("hidden");
+      }
+      if(peResources.manifest){
+        const mOff=rvaToOff(peResources.manifest.rva,peSectionsList);
+        if(mOff>=0){
+          const xml=new TextDecoder('utf-8',{fatal:false}).decode(b.slice(mOff,mOff+120));
+          const vMatch=xml.match(/version="([\d.]+)"/);
+          resHtml+=`<div class="res-item"><span class="chip chip-purple">Manifest</span> <span>${vMatch?'version='+vMatch[1]:'XML trouvé'}</span></div>`;
+        }
+        $("peModManifest").classList.remove("hidden");
+      }
+      if(peResources.icons){
+        const iOff=rvaToOff(peResources.icons.rva,peSectionsList);
+        if(iOff>=0){
+          resHtml+=`<div class="res-item"><span class="chip chip-orange">Icône</span> <span>${peResources.icons.size} octets</span></div>`;
+          const canvas=drawIconOnCanvas(b,iOff,peResources.icons.size);
+          if(canvas) iconWrap.appendChild(canvas);
+          $("peRandomIcons").classList.remove("hidden");
+        }
+      }
+      if(resHtml){
+        $("peResourceInfo").innerHTML=resHtml;
+        $("peResourceBox").classList.remove("hidden");
+      }
+    }
+  }catch(e){console.warn('resources:',e);}
+
+  // ── Overlay ──
+  try{
+    const ov=detectOverlay(b,peSectionsList);
+    if(ov){
+      $("peOverlayInfo").innerHTML=`Données supplémentaires détectées après le PE — Offset: 0x${ov.offset.toString(16).toUpperCase()} — Taille: ${ov.size} octets (${(ov.size/1024).toFixed(1)} Ko)`;
+      $("peOverlayBox").classList.remove("hidden");
+    } else $("peOverlayBox").classList.add("hidden");
+  }catch(e){}
+
   $("peEditorBox").classList.remove("hidden");
 }
 
@@ -738,7 +1021,65 @@ function applyPEChanges(){
   $("peChecksum").value="0x"+cs.toString(16).toUpperCase().padStart(8,"0");
 }
 
-$("peRecalcChecksum").addEventListener("click",applyPEChanges);
+$("peRemoveSig").addEventListener("click",()=>{
+  const r=removeSignature(peBytes,peDataDirBase);
+  if(r){log(`Signature supprimée — offset 0x${r.offset.toString(16).toUpperCase()}, ${r.size} octets effacés`);$("peSigBox").classList.add("hidden");alert("Signature numérique supprimée ✅");}
+  else alert("Aucune signature trouvée.");
+});
+
+$("peRemoveOverlay").addEventListener("click",()=>{
+  const ov=detectOverlay(peBytes,peSectionsList);
+  if(ov){
+    peBytes=peBytes.slice(0,ov.offset);
+    log(`Overlay supprimé — ${ov.size} octets retirés`);
+    $("peOverlayBox").classList.add("hidden");
+    alert(`Overlay supprimé (${ov.size} octets). Exporte le fichier pour le récupérer.`);
+  }
+});
+
+$("peModVersionInfo").addEventListener("click",()=>{
+  if(!peResources||!peResources.version) return;
+  const vOff=rvaToOff(peResources.version.rva,peSectionsList);
+  const vIdx=findVersionMagic(peBytes,vOff,peResources.version.size);
+  if(vIdx<0){alert("Structure VersionInfo introuvable.");return;}
+  const b=peBytes;
+  const maj=randInt(1,9),min=randInt(0,9),build=randInt(1000,9999),rev=randInt(0,999);
+  writeU32LE(b,vIdx+8,(maj<<16)|min);writeU32LE(b,vIdx+12,(build<<16)|rev);
+  writeU32LE(b,vIdx+16,(maj<<16)|min);writeU32LE(b,vIdx+20,(build<<16)|rev);
+  log(`VersionInfo modifié → v${maj}.${min}.${build}.${rev}`);
+  parsePE();
+});
+
+$("peModManifest").addEventListener("click",()=>{
+  if(!peResources||!peResources.manifest) return;
+  const mOff=rvaToOff(peResources.manifest.rva,peSectionsList);
+  if(mOff<0) return;
+  const b=peBytes;
+  const vStr='version="';
+  for(let i=mOff;i<mOff+512&&i<b.length-12;i++){
+    if(vStr.split('').every((c,k)=>b[i+k]===c.charCodeAt(0))){
+      const vo=i+vStr.length;
+      if(b[vo]>=0x30&&b[vo]<=0x39){b[vo]=((b[vo]-0x30+1)%9+1)+0x30;log("Manifest version modifiée");parsePE();return;}
+    }
+  }
+  alert("Version dans le manifest non modifiable directement.");
+});
+
+$("peRandomIcons").addEventListener("click",()=>{
+  if(!peResources||!peResources.icons) return;
+  const iOff=rvaToOff(peResources.icons.rva,peSectionsList);
+  if(iOff<0) return;
+  const b=peBytes;
+  // Modifier quelques octets dans les données pixel (après le BITMAPINFOHEADER)
+  for(let i=iOff;i<iOff+peResources.icons.size-44&&i<b.length-44;i++){
+    if(b[i]===40&&!b[i+1]&&!b[i+2]&&!b[i+3]){
+      const pxOff=i+40;
+      for(let j=0;j<4;j++) if(pxOff+j<b.length) b[pxOff+j]^=randInt(1,15);
+      log("Icône modifiée (pixels randomisés)");parsePE();return;
+    }
+  }
+  alert("Données d'icône non modifiables directement.");
+});
 
 // Toggle sections MAJUSCULES / minuscules
 $("peToggleSections").addEventListener("click",()=>{
