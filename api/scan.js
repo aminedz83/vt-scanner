@@ -1,7 +1,7 @@
 // api/scan.js — reçoit le fichier, l'envoie à VirusTotal, répond tout de suite
 // (ne bloque pas jusqu'à la fin de l'analyse : voir status.js pour le polling).
 const crypto = require("crypto");
-const formidable = require("formidable");
+const { formidable } = require("formidable");
 const { vtFetch, formatResult } = require("./_vt");
 
 module.exports.config = { api: { bodyParser: false } };
