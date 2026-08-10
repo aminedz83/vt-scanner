@@ -262,6 +262,8 @@
           <button id="peModVersionInfo" class="hidden">✏️ Modifier VersionInfo</button>
           <button id="peModManifest" class="hidden">✏️ Modifier Manifest</button>
           <button id="peRandomIcons" class="hidden">🎲 Randomiser icônes</button>
+          <button id="peReplaceIconBtn" class="hidden">🖼️ Remplacer l'icône</button>
+          <input type="file" id="peReplaceIconInput" accept="image/png,image/jpeg,.ico" class="hidden" />
         </div>
       </fieldset>
 
@@ -880,45 +882,58 @@ function findVersionMagic(b,off,sz){
 }
 function drawIconOnCanvas(b,off,sz){
   try{
+    // Trouver BITMAPINFOHEADER
+    let hOff=off;
+    for(let i=off;i<off+Math.min(sz,200)&&i<b.length-4;i++){
+      if(b[i]===0x28&&b[i+1]===0&&b[i+2]===0&&b[i+3]===0){hOff=i;break;}
+    }
+    const w=readU32LE(b,hOff+4);
+    const hRaw=readU32LE(b,hOff+8);
+    // biHeight est 2× la hauteur réelle (inclut le masque AND)
+    const h=hRaw>0x80000000?(0x100000000-hRaw)/2:hRaw/2;
+    const bpp=readU16LE(b,hOff+14);
+    const palCount=bpp<=8?(1<<bpp):0;
+    const palOff=hOff+40;
+    const pixOff=palOff+palCount*4;
+    const rowBytes=Math.ceil(w*bpp/8);
+    const rowStride=Math.ceil(rowBytes/4)*4; // aligné DWORD
+
+    const size=Math.min(Math.max(w,1),64);
     const canvas=document.createElement('canvas');
-    // Cherche BITMAPINFOHEADER (40 bytes)
-    for(let i=off;i<off+sz-40&&i<b.length-40;i++){
-      if(b[i]===40&&!b[i+1]&&!b[i+2]&&!b[i+3]){
-        const w=readU32LE(b,i+4);
-        const h=Math.abs((readU32LE(b,i+8)<<0));
-        const bpp=readU16LE(b,i+14);
-        if(w>=16&&w<=256&&(bpp===32||bpp===24||bpp===8||bpp===4)){
-          const size=Math.min(w,64);
-          canvas.width=size;canvas.height=size;
-          canvas.className='icon-preview';
-          canvas.style.width=size+'px';canvas.style.height=size+'px';
-          const ctx=canvas.getContext('2d');
-          const imgData=ctx.createImageData(size,size);
-          const pixOff=i+40;
-          const rowSize=Math.ceil(w*bpp/32)*4;
-          for(let row=0;row<size;row++){
-            for(let col=0;col<size;col++){
-              const srcRow=h-1-Math.floor(row*h/size);
-              const srcCol=Math.floor(col*w/size);
-              let r=128,g=128,bl=128,a=255;
-              if(bpp===32){
-                const pOff=pixOff+srcRow*rowSize+srcCol*4;
-                if(pOff+4<=b.length){bl=b[pOff];g=b[pOff+1];r=b[pOff+2];a=b[pOff+3]||255;}
-              } else if(bpp===24){
-                const pOff=pixOff+srcRow*rowSize+srcCol*3;
-                if(pOff+3<=b.length){bl=b[pOff];g=b[pOff+1];r=b[pOff+2];}
-              }
-              const idx=(row*size+col)*4;
-              imgData.data[idx]=r;imgData.data[idx+1]=g;imgData.data[idx+2]=bl;imgData.data[idx+3]=a;
-            }
-          }
-          ctx.putImageData(imgData,0,0);
-          return canvas;
+    canvas.width=size;canvas.height=size;
+    canvas.className='icon-preview';
+    canvas.style.width=size+'px';canvas.style.height=size+'px';
+    const ctx=canvas.getContext('2d');
+    const img=ctx.createImageData(size,size);
+
+    for(let row=0;row<size;row++){
+      const srcRow=Math.floor((size-1-row)*h/size); // bottom-up
+      for(let col=0;col<size;col++){
+        const srcCol=Math.floor(col*w/size);
+        let r=128,g=128,bl=128,a=255;
+        if(bpp===32){
+          const p=pixOff+srcRow*rowStride+srcCol*4;
+          if(p+4<=b.length){bl=b[p];g=b[p+1];r=b[p+2];a=b[p+3]||255;}
+        }else if(bpp===24){
+          const p=pixOff+srcRow*rowStride+srcCol*3;
+          if(p+3<=b.length){bl=b[p];g=b[p+1];r=b[p+2];}
+        }else if(bpp===8){
+          const p=pixOff+srcRow*rowStride+srcCol;
+          if(p<b.length){const pi=b[p]*4+palOff;if(pi+4<=b.length){bl=b[pi];g=b[pi+1];r=b[pi+2];}}
+        }else if(bpp===4){
+          const bOff=pixOff+srcRow*rowStride+Math.floor(srcCol/2);
+          if(bOff<b.length){const pi=((srcCol%2===0)?(b[bOff]>>4):b[bOff]&0xF)*4+palOff;if(pi+4<=b.length){bl=b[pi];g=b[pi+1];r=b[pi+2];}}
+        }else if(bpp===1){
+          const bOff=pixOff+srcRow*rowStride+Math.floor(srcCol/8);
+          if(bOff<b.length){const bit=(b[bOff]>>(7-srcCol%8))&1;r=g=bl=bit?255:0;}
         }
+        const idx=(row*size+col)*4;
+        img.data[idx]=r;img.data[idx+1]=g;img.data[idx+2]=bl;img.data[idx+3]=a;
       }
     }
-  }catch(e){}
-  return null;
+    ctx.putImageData(img,0,0);
+    return canvas;
+  }catch(e){return null;}
 }
 
 function parsePE(){
@@ -1018,6 +1033,7 @@ function parsePE(){
           const canvas=drawIconOnCanvas(b,iOff,peResources.icons.size);
           if(canvas) iconWrap.appendChild(canvas);
           $("peRandomIcons").classList.remove("hidden");
+          $("peReplaceIconBtn").classList.remove("hidden");
         }
       }
       if(resHtml){
@@ -1062,6 +1078,54 @@ function applyPEChanges(){
   writeU32LE(b,peOffsets.checksum,cs);
   $("peChecksum").value="0x"+cs.toString(16).toUpperCase().padStart(8,"0");
 }
+
+// Remplacement d'icône
+$("peReplaceIconBtn").addEventListener("click",()=>$("peReplaceIconInput").click());
+$("peReplaceIconInput").addEventListener("change",()=>{
+  const f=$("peReplaceIconInput").files[0];
+  if(!f||!peResources||!peResources.icons) return;
+  const iOff=rvaToOff(peResources.icons.rva,peSectionsList);
+  if(iOff<0){alert("Offset icône introuvable.");return;}
+  const iSize=peResources.icons.size;
+  let origW=32,origHOff=iOff;
+  for(let i=iOff;i<iOff+Math.min(iSize,200)&&i<peBytes.length-4;i++){
+    if(peBytes[i]===0x28&&peBytes[i+1]===0&&peBytes[i+2]===0&&peBytes[i+3]===0){
+      origW=readU32LE(peBytes,i+4)||32;origHOff=i;break;
+    }
+  }
+  const img=new Image();
+  img.onload=()=>{
+    const c=document.createElement('canvas');
+    c.width=origW;c.height=origW;
+    const ctx=c.getContext('2d');
+    ctx.drawImage(img,0,0,origW,origW);
+    const px=ctx.getImageData(0,0,origW,origW).data;
+    const b=peBytes;
+    const rowStride=origW*4; // 32bpp, pas de padding nécessaire pour multiples de 4
+    const newPixSize=origW*rowStride;
+    let o=origHOff;
+    writeU32LE(b,o,40);writeU32LE(b,o+4,origW);writeU32LE(b,o+8,origW*2);
+    writeU16LE(b,o+12,1);writeU16LE(b,o+14,32);writeU32LE(b,o+16,0);
+    writeU32LE(b,o+20,newPixSize);writeU32LE(b,o+24,0);writeU32LE(b,o+28,0);
+    writeU32LE(b,o+32,0);writeU32LE(b,o+36,0);
+    const pixStart=origHOff+40;
+    for(let row=0;row<origW;row++){
+      const srcRow=origW-1-row;
+      for(let col=0;col<origW;col++){
+        const srcIdx=(srcRow*origW+col)*4;
+        const dstOff=pixStart+row*rowStride+col*4;
+        if(dstOff+4<=b.length&&dstOff<iOff+iSize){
+          b[dstOff]=px[srcIdx+2];b[dstOff+1]=px[srcIdx+1];
+          b[dstOff+2]=px[srcIdx];b[dstOff+3]=px[srcIdx+3];
+        }
+      }
+    }
+    log(`Icône remplacée par "${f.name}" (${origW}×${origW}px)`);
+    parsePE();
+  };
+  img.onerror=()=>alert("Image non lisible.");
+  img.src=URL.createObjectURL(f);
+});
 
 $("peRemoveSig").addEventListener("click",()=>{
   const r=removeSignature(peBytes,peDataDirBase);
