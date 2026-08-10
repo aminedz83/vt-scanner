@@ -869,9 +869,12 @@ function parseResources(b,secs,ddb){
 }
 function findVersionMagic(b,off,sz){
   const magic=[0xFE,0xEF,0x04,0xBD];
+  // Cherche dans la zone ressource d'abord
   for(let i=off;i<off+sz-4&&i<b.length-4;i++)
-    if(b[i]===magic[0]&&b[i+1]===magic[1]&&b[i+2]===magic[2]&&b[i+3]===magic[3])
-      return i;
+    if(b[i]===magic[0]&&b[i+1]===magic[1]&&b[i+2]===magic[2]&&b[i+3]===magic[3]) return i;
+  // Fallback : cherche dans tout le fichier
+  for(let i=0;i<b.length-4;i++)
+    if(b[i]===magic[0]&&b[i+1]===magic[1]&&b[i+2]===magic[2]&&b[i+3]===magic[3]) return i;
   return -1;
 }
 function drawIconOnCanvas(b,off,sz){
@@ -1093,14 +1096,37 @@ $("peModManifest").addEventListener("click",()=>{
   const mOff=rvaToOff(peResources.manifest.rva,peSectionsList);
   if(mOff<0) return;
   const b=peBytes;
+  const end=Math.min(mOff+peResources.manifest.size,b.length);
   const vStr='version="';
-  for(let i=mOff;i<mOff+512&&i<b.length-12;i++){
-    if(vStr.split('').every((c,k)=>b[i+k]===c.charCodeAt(0))){
-      const vo=i+vStr.length;
-      if(b[vo]>=0x30&&b[vo]<=0x39){b[vo]=((b[vo]-0x30+1)%9+1)+0x30;log("Manifest version modifiée");parsePE();return;}
+
+  // Détecter UTF-16LE : soit BOM FF FE, soit '<' suivi de 0x00
+  const isUTF16=(b[mOff]===0xFF&&b[mOff+1]===0xFE)||(b[mOff]===0x3C&&b[mOff+1]===0x00);
+
+  if(isUTF16){
+    for(let i=mOff;i<end-vStr.length*2;i+=2){
+      let match=true;
+      for(let k=0;k<vStr.length;k++){if(b[i+k*2]!==vStr.charCodeAt(k)||b[i+k*2+1]!==0){match=false;break;}}
+      if(match){
+        const vo=i+vStr.length*2;
+        if(b[vo]>=0x30&&b[vo]<=0x38&&b[vo+1]===0x00){b[vo]++;log("Manifest version modifiée (UTF-16LE)");parsePE();return;}
+      }
+    }
+  } else {
+    for(let i=mOff;i<end-vStr.length;i++){
+      if(vStr.split('').every((c,k)=>b[i+k]===c.charCodeAt(0))){
+        const vo=i+vStr.length;
+        if(b[vo]>=0x30&&b[vo]<=0x38){b[vo]++;log("Manifest version modifiée (UTF-8)");parsePE();return;}
+      }
     }
   }
-  alert("Version dans le manifest non modifiable directement.");
+
+  // Fallback : trouver n'importe quel chiffre entre guillemets dans le manifest
+  for(let i=mOff+10;i<end-2;i++){
+    if((b[i-1]===0x22||b[i-1]===0x2E)&&b[i]>=0x31&&b[i]<=0x38&&(b[i+1]===0x22||b[i+1]===0x2E||b[i+1]===0x00)){
+      b[i]++;log("Manifest modifié (valeur numérique)");parsePE();return;
+    }
+  }
+  log("Manifest : modification automatique impossible — utilise l'éditeur Hex");
 });
 
 $("peRandomIcons").addEventListener("click",()=>{
@@ -1108,15 +1134,35 @@ $("peRandomIcons").addEventListener("click",()=>{
   const iOff=rvaToOff(peResources.icons.rva,peSectionsList);
   if(iOff<0) return;
   const b=peBytes;
-  // Modifier quelques octets dans les données pixel (après le BITMAPINFOHEADER)
-  for(let i=iOff;i<iOff+peResources.icons.size-44&&i<b.length-44;i++){
-    if(b[i]===40&&!b[i+1]&&!b[i+2]&&!b[i+3]){
-      const pxOff=i+40;
-      for(let j=0;j<4;j++) if(pxOff+j<b.length) b[pxOff+j]^=randInt(1,15);
-      log("Icône modifiée (pixels randomisés)");parsePE();return;
-    }
+  const iSize=peResources.icons.size;
+
+  // Chercher BITMAPINFOHEADER (0x28 0x00 0x00 0x00) dans les données icône
+  let headerStart=-1;
+  for(let i=iOff;i<iOff+Math.min(iSize,200)&&i<b.length-4;i++){
+    if(b[i]===0x28&&b[i+1]===0x00&&b[i+2]===0x00&&b[i+3]===0x00){headerStart=i;break;}
   }
-  alert("Données d'icône non modifiables directement.");
+
+  if(headerStart>=0){
+    const bpp=readU16LE(b,headerStart+14);
+    const paletteEntries=bpp<=8?(1<<bpp):0;
+    const paletteBytes=paletteEntries*4;
+    const pixelStart=headerStart+40+paletteBytes;
+    // Modifier 8 octets espacés dans les données pixel
+    for(let j=0;j<8;j++){
+      const pOff=pixelStart+j*8;
+      if(pOff<b.length&&pOff<iOff+iSize) b[pOff]^=randInt(1,15);
+    }
+    log(`Icône modifiée (${bpp}bpp)`);
+  } else {
+    // Fallback : modifier des octets dans la seconde moitié des données icône
+    const start=iOff+Math.floor(iSize*0.5);
+    for(let j=0;j<12;j++){
+      const pOff=start+j*4;
+      if(pOff<b.length&&pOff<iOff+iSize) b[pOff]^=randInt(1,15);
+    }
+    log("Icône modifiée (mode fallback)");
+  }
+  parsePE();
 });
 
 // Toggle sections MAJUSCULES / minuscules
