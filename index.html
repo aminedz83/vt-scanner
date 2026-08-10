@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>VT Scanner Pro</title>
+<style>
+  :root{
+    --win-blue-top:#3f7fd6; --win-blue-bot:#1a52a8;
+    --win-face:#ece9d8; --win-border:#8c8c8c;
+    --panel-blue:#0033cc; --green:#1a9b3a; --red:#cc1414; --orange:#e08a00;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;min-height:100vh;padding:16px;background:linear-gradient(180deg,#5b8fd9,#a9c6ef 40%,#dce9f7);font-family:"Segoe UI","Tahoma",sans-serif;display:flex;align-items:flex-start;justify-content:center;}
+  .window{width:100%;max-width:700px;background:var(--win-face);border:1px solid #4c4c4c;border-radius:8px 8px 4px 4px;box-shadow:0 10px 30px rgba(0,0,0,.35);overflow:hidden;}
+  .titlebar{background:linear-gradient(180deg,var(--win-blue-top),var(--win-blue-bot));color:#fff;padding:8px 10px;display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;}
+  .titlebar .buttons{margin-left:auto;display:flex;gap:4px;}
+  .titlebar .buttons span{width:20px;height:18px;background:#e8e8e8;border:1px solid #666;border-radius:2px;display:inline-block;}
+  .tabs{display:flex;background:#d4d0c8;border-bottom:1px solid var(--win-border);flex-wrap:wrap;}
+  .tab{padding:7px 13px;font-size:12px;font-weight:600;cursor:pointer;border-right:1px solid var(--win-border);color:#333;background:#c8c4bc;}
+  .tab.active{background:var(--win-face);color:var(--panel-blue);border-bottom:1px solid var(--win-face);margin-bottom:-1px;}
+  .tab-content{display:none;padding:14px;}
+  .tab-content.active{display:block;}
+  fieldset{border:1px solid var(--win-border);border-radius:4px;margin-bottom:14px;padding:12px;}
+  legend{color:var(--panel-blue);font-weight:600;font-size:13px;padding:0 4px;}
+  .row{display:flex;gap:8px;margin-bottom:10px;}
+  input[type=text],input[type=number],select{flex:1;padding:8px;border:1px solid var(--win-border);border-radius:3px;background:#fff;font-size:13px;min-width:0;}
+  button{font-family:inherit;font-size:13px;padding:8px 14px;border:1px solid #7a7a7a;border-radius:4px;cursor:pointer;background:linear-gradient(180deg,#fdfdfd,#e2e2e2);white-space:nowrap;}
+  button:active{background:linear-gradient(180deg,#d8d8d8,#c8c8c8);}
+  button.primary{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;font-weight:700;font-size:15px;background:linear-gradient(180deg,#f5f9ff,#cfe0f7);}
+  button:disabled{opacity:.55;cursor:not-allowed;}
+  .result-row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;}
+  .shield-status{width:64px;height:64px;flex:none;}
+  .facts{flex:1;min-width:180px;font-size:13px;}
+  .facts div{margin-bottom:6px;}
+  .facts b{display:inline-block;min-width:110px;}
+  .summary{border:1px solid var(--win-border);border-radius:4px;padding:10px 14px;font-size:13px;min-width:130px;}
+  .summary div{margin-bottom:4px;}
+  .filelist{max-height:140px;overflow-y:auto;font-size:12px;margin-top:8px;}
+  .filelist div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #ccc;}
+  /* Hex */
+  .hex-wrap{font-family:"Consolas","Menlo",monospace;font-size:12px;background:#fff;border:1px solid var(--win-border);border-radius:3px;overflow:auto;max-height:300px;}
+  .hex-table{border-collapse:collapse;width:100%;}
+  .hex-table td{padding:2px 5px;white-space:nowrap;vertical-align:top;}
+  .hex-addr{color:#888;user-select:none;border-right:1px solid #ddd;}
+  .hex-cell{cursor:pointer;border-radius:2px;}
+  .hex-cell:hover{background:#cde;}
+  .hex-cell.selected{background:#4a90d9;color:#fff;}
+  .hex-cell.modified{background:#ffeeba;}
+  .hex-cell.selected.modified{background:#4a90d9;color:#fff;}
+  .hex-cell.pe-field-hl{background:#d4f0d4;outline:1px solid #5a9b5a;}
+  .hex-cell.selected.pe-field-hl{background:#4a90d9;color:#fff;}
+  .hex-ascii{color:#555;border-left:1px solid #ddd;letter-spacing:1px;}
+  .hex-edit-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;}
+  .hex-edit-row label{font-size:12px;color:#555;}
+  /* PE */
+  .pe-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .pe-field label{display:block;font-size:12px;color:#555;margin-bottom:3px;}
+  .pe-field input,.pe-field select{width:100%;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:13px;}
+  .pe-sections{font-size:12px;font-family:monospace;}
+  .pe-sections div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #ccc;}
+  /* Historique */
+  .hist-table{width:100%;border-collapse:collapse;font-size:12px;}
+  .hist-table th{background:#d4d0c8;padding:5px 8px;text-align:left;border:1px solid var(--win-border);}
+  .hist-table td{padding:5px 8px;border:1px solid #ddd;vertical-align:middle;}
+  .hist-table tr:nth-child(even){background:#f5f3ee;}
+  .hist-table .actions{display:flex;gap:4px;}
+  .hist-table button{padding:3px 8px;font-size:11px;}
+  .hash-short{font-family:monospace;font-size:11px;}
+  /* Diff */
+  .diff-table{width:100%;border-collapse:collapse;font-size:12px;font-family:monospace;}
+  .diff-table th{background:#d4d0c8;padding:5px 8px;text-align:left;border:1px solid var(--win-border);}
+  .diff-table td{padding:4px 8px;border:1px solid #ddd;}
+  .diff-old{color:var(--red);font-weight:700;}
+  .diff-new{color:var(--green);font-weight:700;}
+  /* Journal */
+  .journal{background:#fff;border:1px solid var(--win-border);border-radius:3px;height:100px;overflow-y:auto;padding:8px;font-size:12px;font-family:"Consolas","Menlo",monospace;color:#222;}
+  .journal div{margin-bottom:2px;}
+  .statusbar{display:flex;justify-content:space-between;padding:6px 12px;font-size:12px;background:#e6e6e6;border-top:1px solid #b8b8b8;}
+  .link{color:var(--panel-blue);text-decoration:underline;cursor:pointer;font-size:13px;}
+  .hidden{display:none;}
+  .malicious{color:var(--red);font-weight:700;}
+  .clean{color:var(--green);font-weight:700;}
+  .dl-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:linear-gradient(180deg,#f5fff5,#cff0cf);border:1px solid #5a9b5a;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;margin-top:8px;}
+  .empty-msg{color:#888;font-size:13px;text-align:center;padding:20px;}
+  @media(max-width:480px){.pe-grid{grid-template-columns:1fr;}.facts b{min-width:90px;}body{padding:8px;}.tab{padding:6px 9px;font-size:11px;}}
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#fff" d="M12 1l8 3v6c0 5-3.5 9.5-8 11-4.5-1.5-8-6-8-11V4l8-3z" opacity=".9"/><path fill="#1a52a8" d="M9.5 12.5l1.8 1.8 4-4.3-1.1-1.1-2.9 3.1-1-1z"/></svg>
+    VT Scanner Pro
+    <div class="buttons"><span></span><span></span><span>✕</span></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active"  onclick="switchTab('vt')">🛡️ VirusTotal</div>
+    <div class="tab"         onclick="switchTab('pe')">🔧 Éditeur PE</div>
+    <div class="tab"         onclick="switchTab('hex')">💾 Éditeur Hex</div>
+    <div class="tab"         onclick="switchTab('hist')">📋 Historique</div>
+    <div class="tab"         onclick="switchTab('diff')">🔍 Comparaison</div>
+  </div>
+
+  <!-- ── VIRUSTOTAL ──────────────────────────────────────────── -->
+  <div class="tab-content active" id="tab-vt">
+    <fieldset>
+      <legend>1. Fichier à analyser</legend>
+      <div class="row">
+        <input type="text" id="fileNameDisplay" readonly placeholder="Aucun fichier sélectionné" />
+        <button id="browseBtn">Parcourir…</button>
+      </div>
+      <input type="file" id="fileInput" class="hidden" />
+      <button class="primary" id="scanBtn" disabled>🛡️ Analyser avec VirusTotal</button>
+    </fieldset>
+
+    <fieldset id="resultBox" class="hidden">
+      <legend>2. Résultat de l'analyse</legend>
+      <div class="result-row">
+        <svg class="shield-status" id="shieldIcon" viewBox="0 0 24 24"></svg>
+        <div class="facts">
+          <div><b>Détections :</b> <span id="detectionCount">—</span></div>
+          <div><b>Statut :</b> <span id="statusText">—</span></div>
+          <div><b>Date :</b> <span id="scanDate">—</span></div>
+          <div><b>SHA-256 :</b> <span id="hashText" style="word-break:break-all;font-family:monospace;font-size:11px;">—</span></div>
+        </div>
+        <div class="summary" id="summaryBox"></div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
+        <span class="link" id="toggleEngines">Voir les résultats complets…</span>
+        <span class="link" id="openInBrowser">Ouvrir dans VirusTotal ↗</span>
+      </div>
+      <div class="filelist hidden" id="engineList"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>3. Journal</legend>
+      <div class="journal" id="journal"></div>
+    </fieldset>
+  </div>
+
+  <!-- ── PE EDITOR ──────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-pe">
+    <fieldset>
+      <legend>Charger un fichier EXE / DLL</legend>
+      <div class="row">
+        <input type="text" id="peFileName" readonly placeholder="Aucun fichier PE chargé" />
+        <button id="peBrowseBtn">Parcourir…</button>
+      </div>
+      <input type="file" id="peFileInput" accept=".exe,.dll,.sys,.ocx" class="hidden" />
+    </fieldset>
+
+    <div id="peEditorBox" class="hidden">
+      <fieldset>
+        <legend>Métadonnées PE</legend>
+        <div class="pe-grid">
+          <div class="pe-field">
+            <label>Timestamp (Unix)</label>
+            <div style="display:flex;gap:4px;">
+              <input type="number" id="peTimestamp" style="flex:1;" />
+              <button id="peTsPlus" title="+1 seconde">+1</button>
+            </div>
+          </div>
+          <div class="pe-field">
+            <label>Timestamp lisible</label>
+            <input type="text" id="peTimestampHuman" readonly />
+          </div>
+          <div class="pe-field">
+            <label>Version Linker (Major)</label>
+            <input type="number" id="peLinkMajor" min="0" max="255" />
+          </div>
+          <div class="pe-field">
+            <label>Version Linker (Minor)</label>
+            <input type="number" id="peLinkMinor" min="0" max="255" />
+          </div>
+          <div class="pe-field">
+            <label>OS Version (Major)</label>
+            <input type="number" id="peOsMajor" min="0" max="9" />
+          </div>
+          <div class="pe-field">
+            <label>OS Version (Minor)</label>
+            <input type="number" id="peOsMinor" min="0" max="99" />
+          </div>
+          <div class="pe-field">
+            <label>Image Version (Major)</label>
+            <input type="number" id="peImgMajor" min="0" max="255" />
+          </div>
+          <div class="pe-field">
+            <label>Image Version (Minor)</label>
+            <input type="number" id="peImgMinor" min="0" max="255" />
+          </div>
+          <div class="pe-field">
+            <label>Subsystem</label>
+            <select id="peSubsystem">
+              <option value="2">Windows GUI (2)</option>
+              <option value="3">Windows Console (3)</option>
+              <option value="9">EFI Application (9)</option>
+            </select>
+          </div>
+          <div class="pe-field">
+            <label>DLL Characteristics (hex)</label>
+            <input type="text" id="peDllFlags" placeholder="ex: 8160" />
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Sections</legend>
+        <div class="pe-sections" id="peSectionsView"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Checksum</legend>
+        <div class="row" style="align-items:center;">
+          <input type="text" id="peChecksum" readonly style="font-family:monospace;" />
+          <button id="peRecalcChecksum">Recalculer</button>
+        </div>
+        <div style="font-size:11px;color:#888;">Recalculé automatiquement à l'export.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Options avancées</legend>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <button id="peToggleSections">🔤 Sections MAJUSCULES / minuscules</button>
+          <button id="peRemoveRich">🗑️ Supprimer Rich Header</button>
+        </div>
+        <div style="font-size:11px;color:#888;">Rich Header = bloc entre l'en-tête DOS et la signature PE, présent dans les fichiers compilés avec MSVC.</div>
+      </fieldset>
+
+      <button class="primary" id="peApplyAll" style="margin-bottom:10px;background:linear-gradient(180deg,#fff8e1,#ffe082);">⚡ Appliquer toutes les modifications</button>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="dl-btn" id="peExportBtn">⬇️ Exporter fichier modifié</button>
+        <button class="primary" id="peScanBtn" style="width:auto;flex:1;">🛡️ Scanner avec VirusTotal</button>
+      </div>
+      <div style="margin-top:8px;">
+        <button class="primary" id="peScanBothBtn" style="background:linear-gradient(180deg,#f3e5f5,#ce93d8);">🔁 Scanner Original + Modifié (tableau comparatif)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── HEX EDITOR ─────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-hex">
+    <fieldset>
+      <legend>Charger un fichier</legend>
+      <div class="row">
+        <input type="text" id="hexFileName" readonly placeholder="Aucun fichier chargé" />
+        <button id="hexBrowseBtn">Parcourir…</button>
+      </div>
+      <input type="file" id="hexFileInput" class="hidden" />
+      <button id="hexLoadTestBtn" style="width:100%;margin-top:6px;background:linear-gradient(180deg,#fff8e1,#ffe082);font-size:13px;">🧪 Charger un EXE de test (PE valide)</button>
+    </fieldset>
+
+    <div id="hexEditorBox" class="hidden">
+
+      <!-- Panneau PE auto-détecté (visible uniquement si c'est un PE) -->
+      <div id="hexPePanel" class="hidden">
+        <fieldset>
+          <legend>🔧 Champs PE détectés — modification automatique</legend>
+          <div style="font-size:11px;color:#555;margin-bottom:8px;">Modifie un champ → les octets correspondants sont mis à jour dans la vue hex (surlignés en vert).</div>
+          <div class="pe-grid">
+            <div class="pe-field">
+              <label>Timestamp (Unix)</label>
+              <div style="display:flex;gap:4px;">
+                <input type="number" id="hxTimestamp" style="flex:1;" />
+                <button id="hxTsPlus" title="+1 seconde">+1</button>
+                <button id="hxTsApply">✔</button>
+              </div>
+            </div>
+            <div class="pe-field">
+              <label>Timestamp lisible</label>
+              <input type="text" id="hxTimestampHuman" readonly />
+            </div>
+            <div class="pe-field">
+              <label>Linker Major</label>
+              <div style="display:flex;gap:4px;">
+                <input type="number" id="hxLinkMajor" min="0" max="255" style="flex:1;" />
+                <button id="hxLinkMajorApply">✔</button>
+              </div>
+            </div>
+            <div class="pe-field">
+              <label>Linker Minor</label>
+              <div style="display:flex;gap:4px;">
+                <input type="number" id="hxLinkMinor" min="0" max="255" style="flex:1;" />
+                <button id="hxLinkMinorApply">✔</button>
+              </div>
+            </div>
+            <div class="pe-field">
+              <label>OS Version Major</label>
+              <div style="display:flex;gap:4px;">
+                <input type="number" id="hxOsMajor" min="0" max="9" style="flex:1;" />
+                <button id="hxOsMajorApply">✔</button>
+              </div>
+            </div>
+            <div class="pe-field">
+              <label>OS Version Minor</label>
+              <div style="display:flex;gap:4px;">
+                <input type="number" id="hxOsMinor" min="0" max="99" style="flex:1;" />
+                <button id="hxOsMinorApply">✔</button>
+              </div>
+            </div>
+            <div class="pe-field">
+              <label>Image Version Major</label>
+              <div style="display:flex;gap:4px;">
+                <input type="number" id="hxImgMajor" min="0" max="255" style="flex:1;" />
+                <button id="hxImgMajorApply">✔</button>
+              </div>
+            </div>
+            <div class="pe-field">
+              <label>Image Version Minor</label>
+              <div style="display:flex;gap:4px;">
+                <input type="number" id="hxImgMinor" min="0" max="255" style="flex:1;" />
+                <button id="hxImgMinorApply">✔</button>
+              </div>
+            </div>
+            <div class="pe-field">
+              <label>DLL Characteristics (hex)</label>
+              <div style="display:flex;gap:4px;">
+                <input type="text" id="hxDllFlags" style="flex:1;" />
+                <button id="hxDllFlagsApply">✔</button>
+              </div>
+            </div>
+            <div class="pe-field">
+              <label>Checksum</label>
+              <div style="display:flex;gap:4px;">
+                <input type="text" id="hxChecksum" readonly style="flex:1;font-family:monospace;" />
+                <button id="hxRecalcChecksum">Recalc</button>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Smart Modify -->
+        <fieldset style="border-color:#5a9b5a;background:#f5fff5;">
+          <legend style="color:#1a9b3a;">⚡ Smart Modify — Tout modifier intelligemment</legend>
+          <div style="font-size:11px;color:#555;margin-bottom:8px;">
+            Analyse le fichier et applique automatiquement des valeurs réalistes pour les 13 modifications.
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:10px;font-size:11px;" id="smartModChecks">
+            <label><input type="checkbox" id="smTimestamp" checked> Timestamp</label>
+            <label><input type="checkbox" id="smLinker" checked> Linker Version</label>
+            <label><input type="checkbox" id="smOs" checked> OS Version</label>
+            <label><input type="checkbox" id="smImage" checked> Image Version</label>
+            <label><input type="checkbox" id="smDll" checked> DLL Flags</label>
+            <label><input type="checkbox" id="smSections" checked> Section Names</label>
+            <label><input type="checkbox" id="smChecksum" checked> Checksum</label>
+            <label><input type="checkbox" id="smRich" checked> Rich Header</label>
+            <label><input type="checkbox" id="smStrings" checked> Strings padding</label>
+            <label><input type="checkbox" id="smVersionInfo" checked> VersionInfo</label>
+            <label><input type="checkbox" id="smManifest" checked> Manifest</label>
+            <label><input type="checkbox" id="smIcons" checked> Icônes</label>
+          </div>
+          <button class="primary" id="hxSmartModify" style="background:linear-gradient(180deg,#e8f5e9,#a5d6a7);font-size:14px;margin-bottom:8px;">⚡ Smart Modify</button>
+          <div id="smartModResult" class="hidden" style="background:#fff;border:1px solid #5a9b5a;border-radius:4px;padding:8px;font-size:11px;font-family:monospace;max-height:120px;overflow-y:auto;"></div>
+        </fieldset>
+
+        <!-- Strings Find & Replace -->
+        <fieldset>
+          <legend>🔡 Strings — Chercher &amp; Remplacer</legend>
+          <div class="row">
+            <input type="text" id="hxFindStr" placeholder="Texte à chercher (ASCII)" />
+            <input type="text" id="hxReplStr" placeholder="Remplacement (même longueur)" style="flex:1;" />
+            <button id="hxStrReplace">Remplacer</button>
+          </div>
+          <div style="font-size:11px;color:#888;">Le remplacement est complété/tronqué pour correspondre à la longueur originale.</div>
+        </fieldset>
+      </div>
+
+      <fieldset>
+        <legend>Vue hexadécimale</legend>
+        <div class="hex-wrap"><table class="hex-table" id="hexTable"></table></div>
+        <div class="hex-edit-row">
+          <label>Offset :</label>
+          <input type="text" id="hexOffsetDisplay" readonly value="—" style="width:90px;flex:none;" />
+          <label>Valeur hex :</label>
+          <input type="text" id="hexValueInput" maxlength="2" placeholder="FF" style="width:55px;flex:none;" />
+          <button id="hexApplyBtn">Appliquer</button>
+          <button id="hexResetBtn">Réinitialiser</button>
+        </div>
+      </fieldset>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <button class="dl-btn" id="hexExportBtn">⬇️ Exporter fichier modifié</button>
+        <button class="primary" id="hexScanBtn" style="width:auto;flex:1;">🛡️ Scanner avec VirusTotal</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── HISTORIQUE ──────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-hist">
+    <fieldset>
+      <legend>Historique des versions exportées</legend>
+      <div id="histEmpty" class="empty-msg">Aucune version exportée pour l'instant.<br>Exporte un fichier depuis l'éditeur PE ou Hex pour voir l'historique ici.</div>
+      <div id="histTableWrap" class="hidden">
+        <table class="hist-table">
+          <thead><tr><th>#</th><th>Fichier</th><th>SHA-256</th><th>Modifs</th><th>VT Détections</th><th>Actions</th></tr></thead>
+          <tbody id="histBody"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;text-align:right;">
+        <button id="histClearBtn" class="hidden" style="font-size:11px;color:#888;">🗑️ Vider l'historique</button>
+      </div>
+    </fieldset>
+  </div>
+
+  <!-- ── COMPARAISON ────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-diff">
+    <fieldset>
+      <legend>Comparaison Binaire — Original vs Modifié</legend>
+      <div id="diffEmpty" class="empty-msg">Charge et modifie un fichier depuis l'éditeur PE ou Hex,<br>puis exporte-le pour voir la comparaison ici.</div>
+      <div id="diffContent" class="hidden">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">
+          <div style="flex:1;background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
+            <div style="font-size:11px;color:#888;margin-bottom:4px;">SHA-256 ORIGINAL</div>
+            <div id="diffHashOrig" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--red);"></div>
+          </div>
+          <div style="flex:1;background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
+            <div style="font-size:11px;color:#888;margin-bottom:4px;">SHA-256 MODIFIÉ</div>
+            <div id="diffHashNew" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--green);"></div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:#555;margin-bottom:6px;" id="diffCountLabel"></div>
+        <div style="max-height:220px;overflow-y:auto;margin-bottom:12px;">
+          <table class="diff-table">
+            <thead><tr><th>Offset</th><th>Avant (hex)</th><th>Après (hex)</th><th>Champ</th></tr></thead>
+            <tbody id="diffBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset id="vtCompareBox" class="hidden">
+      <legend>🔁 Résultats VirusTotal comparatifs</legend>
+      <table class="hist-table" style="font-size:12px;">
+        <thead><tr><th>Version</th><th>SHA-256</th><th>Détections</th><th>Moteurs</th><th>Lien</th></tr></thead>
+        <tbody id="vtCompareBody"></tbody>
+      </table>
+    </fieldset>
+  </div>
+
+  <div class="statusbar">
+    <span>Statut : <span id="statusBar">Prêt</span></span>
+    <span id="timeElapsed"></span>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// ─── État global ─────────────────────────────────────────────────────────────
+let selectedFile = null;
+let peBytes = null, peOrigBytes = null, peFileNameStr = "", peOffsets = {};
+let hexBytes = null, hexOrigBytes = null, hexFileNameStr = "";
+let hexSelectedOffset = null;
+let history = [];   // [{iter, name, blob, sha256, mods}]
+let startTime = null, timerInt = null;
+
+// ─── Onglets ──────────────────────────────────────────────────────────────────
+function switchTab(name){
+  const names=['vt','pe','hex','hist','diff'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  $('tab-'+name).classList.add('active');
+}
+
+// ─── Utilitaires ──────────────────────────────────────────────────────────────
+function log(msg){const t=new Date().toLocaleTimeString("fr-FR");const d=document.createElement("div");d.textContent=`[${t}] ${msg}`;$("journal").appendChild(d);$("journal").scrollTop=$("journal").scrollHeight;}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function shieldSVG(state){const c=state==="ok"?"#1a9b3a":state==="bad"?"#cc1414":"#e08a00";const m=state==="ok"?`<path fill="#fff" d="M9.5 12.5l1.8 1.8 4-4.3-1.1-1.1-2.9 3.1-1-1z"/>`:`<path fill="#fff" d="M11 7h2v6h-2zM11 15h2v2h-2z"/>`;return `<path fill="${c}" d="M12 1l8 3v6c0 5-3.5 9.5-8 11-4.5-1.5-8-6-8-11V4l8-3z"/>${m}`;}
+function startTimer(){startTime=Date.now();timerInt=setInterval(()=>{const s=Math.floor((Date.now()-startTime)/1000);$("timeElapsed").textContent=`Temps écoulé : ${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;},1000);}
+function stopTimer(){clearInterval(timerInt);}
+function readU16LE(b,o){return b[o]|(b[o+1]<<8);}
+function readU32LE(b,o){return(b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0;}
+function writeU16LE(b,o,v){b[o]=v&0xff;b[o+1]=(v>>8)&0xff;}
+function writeU32LE(b,o,v){b[o]=v&0xff;b[o+1]=(v>>8)&0xff;b[o+2]=(v>>16)&0xff;b[o+3]=(v>>24)&0xff;}
+
+async function sha256hex(buf){
+  const hash=await crypto.subtle.digest('SHA-256',buf);
+  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+function peName(offset){
+  const map={};
+  if(peOffsets.timestamp!==undefined) map[peOffsets.timestamp]='Timestamp';
+  if(peOffsets.linkMajor!==undefined){map[peOffsets.linkMajor]='Linker Major';map[peOffsets.linkMinor]='Linker Minor';}
+  if(peOffsets.osMajor!==undefined){map[peOffsets.osMajor]='OS Major';map[peOffsets.osMajor+1]='OS Major+1';map[peOffsets.osMinor]='OS Minor';map[peOffsets.osMinor+1]='OS Minor+1';}
+  if(peOffsets.imgMajor!==undefined){map[peOffsets.imgMajor]='Image Major';map[peOffsets.imgMinor]='Image Minor';}
+  if(peOffsets.subsystem!==undefined){map[peOffsets.subsystem]='Subsystem';map[peOffsets.dllFlags]='DLL Flags';map[peOffsets.checksum]='Checksum';}
+  return map[offset]||'';
+}
+
+// ─── Historique ───────────────────────────────────────────────────────────────
+async function addToHistory(name, bytes, origBytes, source){
+  const hash = await sha256hex(bytes.buffer);
+  const origHash = origBytes ? await sha256hex(origBytes.buffer) : null;
+
+  // Calcul du diff
+  const mods = [];
+  if(origBytes){
+    for(let i=0;i<Math.min(bytes.length,origBytes.length);i++){
+      if(bytes[i]!==origBytes[i]){
+        const desc = source==='pe' ? peName(i) : '';
+        mods.push({offset:i, old:origBytes[i], nw:bytes[i], desc});
+      }
+    }
+  }
+
+  const iter = history.length + 1;
+  const blob = new Blob([bytes],{type:"application/octet-stream"});
+  history.push({iter, name, blob, sha256:hash, origHash, mods, bytes:new Uint8Array(bytes), origBytes: origBytes ? new Uint8Array(origBytes) : null, source});
+  renderHistory();
+  renderDiff(history[history.length-1]);
+}
+
+function renderHistory(){
+  if(history.length===0){
+    $('histEmpty').classList.remove('hidden');
+    $('histTableWrap').classList.add('hidden');
+    $('histClearBtn').classList.add('hidden');
+    return;
+  }
+  $('histEmpty').classList.add('hidden');
+  $('histTableWrap').classList.remove('hidden');
+  $('histClearBtn').classList.remove('hidden');
+
+  $('histBody').innerHTML = history.map(h=>{
+    let vtCell = '—';
+    if(h.vtResult){
+      const bad=h.vtResult.stats.malicious;
+      const tot=h.vtResult.stats.total;
+      vtCell=`<span class="${bad>0?'malicious':'clean'}">${bad}/${tot}</span>`;
+    }
+    return `<tr>
+      <td>${h.iter}</td>
+      <td style="font-size:11px;">${h.name}</td>
+      <td class="hash-short" title="${h.sha256}">${h.sha256.substring(0,12)}…</td>
+      <td style="font-size:11px;">${h.mods.length} octet(s)</td>
+      <td>${vtCell}</td>
+      <td><div class="actions">
+        <button onclick="histScan(${h.iter-1})">🛡️</button>
+        <button onclick="histDownload(${h.iter-1})">⬇️</button>
+        <button onclick="showDiffFor(${h.iter-1})">🔍</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function histScan(idx){
+  const h=history[idx];
+  const result = await doScanReturn(new File([h.blob],h.name), h.name);
+  if(result){ h.vtResult=result; renderHistory(); }
+}
+function histDownload(idx){const h=history[idx];const a=document.createElement('a');a.href=URL.createObjectURL(h.blob);a.download=h.name;a.click();}
+function showDiffFor(idx){renderDiff(history[idx]);switchTab('diff');}
+
+$('histClearBtn').addEventListener('click',()=>{
+  if(confirm('Vider tout l\'historique ?')){history=[];renderHistory();}
+});
+
+// ─── Comparaison diff ─────────────────────────────────────────────────────────
+function renderDiff(h){
+  if(!h||!h.origBytes){$('diffEmpty').classList.remove('hidden');$('diffContent').classList.add('hidden');return;}
+  $('diffEmpty').classList.add('hidden');
+  $('diffContent').classList.remove('hidden');
+  $('diffHashOrig').textContent = h.origHash||'—';
+  $('diffHashNew').textContent = h.sha256;
+  $('diffCountLabel').textContent = `${h.mods.length} octet(s) modifié(s) — Itération ${h.iter}`;
+  $('diffBody').innerHTML = h.mods.map(m=>`
+    <tr>
+      <td>0x${m.offset.toString(16).toUpperCase().padStart(8,'0')}</td>
+      <td class="diff-old">${m.old.toString(16).toUpperCase().padStart(2,'0')}</td>
+      <td class="diff-new">${m.nw.toString(16).toUpperCase().padStart(2,'0')}</td>
+      <td style="color:#555;">${m.desc}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── VIRUSTOTAL ───────────────────────────────────────────────────────────────
+$("browseBtn").addEventListener("click",()=>$("fileInput").click());
+$("fileInput").addEventListener("change",()=>{
+  if(!$("fileInput").files.length)return;
+  selectedFile=$("fileInput").files[0];
+  $("fileNameDisplay").value=selectedFile.name;
+  $("scanBtn").disabled=false;
+  log(`Fichier sélectionné : ${selectedFile.name} (${(selectedFile.size/1024/1024).toFixed(2)} Mo)`);
+});
+
+async function pollStatus(params,maxTries=40,intervalMs=3000){
+  const qs=new URLSearchParams(params).toString();
+  for(let i=0;i<maxTries;i++){
+    await sleep(intervalMs);
+    const res=await fetch(`/api/status?${qs}`);
+    if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`Erreur ${res.status}`);}
+    const data=await res.json();
+    if(data.done)return data;
+    log("Analyse en cours…");
+  }
+  throw new Error("Timeout — l'analyse prend trop de temps.");
+}
+
+async function doScanReturn(fileObj, label){
+  $("scanBtn").disabled=true;
+  $("statusBar").textContent="Envoi en cours…";
+  $("resultBox").classList.add("hidden");
+  startTimer();
+  log(`Envoi de "${label}"…`);
+  const form=new FormData();
+  form.append("file",fileObj,label);
+  try{
+    const res=await fetch("/api/scan",{method:"POST",body:form});
+    if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`Erreur ${res.status}`);}
+    let data=await res.json();
+    if(data.done){log("Résultat déjà connu de VirusTotal.");}
+    else{log("Analyse lancée…");data=await pollStatus({id:data.analysisId,hash:data.hash,filename:data.filename,size:data.size});log("Analyse terminée.");}
+    renderResult(data);
+    $("statusBar").textContent="Prêt";
+    return data;
+  }catch(e){log(`Erreur : ${e.message}`);$("statusBar").textContent="Erreur";alert("Échec : "+e.message);return null;}
+  finally{stopTimer();$("scanBtn").disabled=false;}
+}
+
+async function doScan(fileObj, label){
+  switchTab('vt');
+  await doScanReturn(fileObj, label);
+}
+
+async function doCompareScan(origBytes, modBytes, origName, modName){
+  switchTab('diff');
+  $('vtCompareBox').classList.add('hidden');
+  $('vtCompareBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:10px;">⏳ Scan de l\'original en cours…</td></tr>';
+  $('vtCompareBox').classList.remove('hidden');
+
+  const origResult = await doScanReturn(new File([new Blob([origBytes])], origName), origName);
+  $('vtCompareBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:10px;">⏳ Scan du fichier modifié en cours…</td></tr>';
+  const modResult  = await doScanReturn(new File([new Blob([modBytes])],  modName),  modName);
+
+  if(!origResult||!modResult){return;}
+
+  const rows = [
+    {label:'Original', r:origResult},
+    {label:'Modifié',  r:modResult},
+  ];
+  $('vtCompareBody').innerHTML = rows.map(({label,r})=>{
+    const bad=r.stats.malicious+r.stats.suspicious;
+    const tot=r.stats.total;
+    return `<tr>
+      <td><b>${label}</b></td>
+      <td class="hash-short" title="${r.hash}">${r.hash.substring(0,12)}…</td>
+      <td><span class="${bad>0?'malicious':'clean'}">${r.stats.malicious}/${tot}</span></td>
+      <td>${r.stats.suspicious} suspect / ${r.stats.harmless+r.stats.undetected} indemne</td>
+      <td><span class="link" onclick="window.open('${r.permalink}','_blank')">VT ↗</span></td>
+    </tr>`;
+  }).join('');
+  $('vtCompareBox').classList.remove('hidden');
+  switchTab('diff');
+}
+
+$("scanBtn").addEventListener("click",()=>doScan(selectedFile,selectedFile.name));
+
+function renderResult(data){
+  const{stats,hash,scanDate,permalink,engines}=data;
+  const bad=stats.malicious+stats.suspicious;
+  const state=stats.malicious>0?"bad":stats.suspicious>0?"warn":"ok";
+  $("shieldIcon").innerHTML=shieldSVG(state);
+  $("detectionCount").innerHTML=`<span class="${bad>0?"malicious":"clean"}">${stats.malicious} / ${stats.total}</span>`;
+  $("statusText").textContent="Analyse terminée";
+  $("scanDate").textContent=new Date(scanDate).toLocaleString("fr-FR");
+  $("hashText").textContent=hash;
+  $("summaryBox").innerHTML=`<div class="malicious">${stats.malicious} Détecté</div><div style="color:#e08a00;">${stats.suspicious} Suspect</div><div class="clean">${stats.harmless+stats.undetected} Indemne</div>`;
+  $("openInBrowser").onclick=()=>window.open(permalink,"_blank");
+  $("engineList").innerHTML=engines.filter(e=>e.category==="malicious"||e.category==="suspicious").concat(engines.filter(e=>e.category!=="malicious"&&e.category!=="suspicious")).map(e=>`<div><span>${e.engine}</span><span class="${e.category==="malicious"?"malicious":e.category==="suspicious"?"":"clean"}">${e.result||e.category}</span></div>`).join("");
+  $("resultBox").classList.remove("hidden");
+}
+$("toggleEngines").addEventListener("click",()=>{$("engineList").classList.toggle("hidden");$("toggleEngines").textContent=$("engineList").classList.contains("hidden")?"Voir les résultats complets…":"Masquer les résultats";});
+
+// ─── PE EDITOR ────────────────────────────────────────────────────────────────
+$("peBrowseBtn").addEventListener("click",()=>$("peFileInput").click());
+$("peFileInput").addEventListener("change",()=>{
+  const f=$("peFileInput").files[0];if(!f)return;
+  peFileNameStr=f.name;$("peFileName").value=f.name;
+  const r=new FileReader();
+  r.onload=e=>{peBytes=new Uint8Array(e.target.result);peOrigBytes=new Uint8Array(peBytes);parsePE();};
+  r.readAsArrayBuffer(f);
+});
+
+function parsePE(){
+  const b=peBytes;
+  if(b[0]!==0x4D||b[1]!==0x5A){alert("Pas un fichier PE valide (MZ manquant).");return;}
+  const peOff=readU32LE(b,0x3C);
+  if(b[peOff]!==0x50||b[peOff+1]!==0x45){alert("Signature PE introuvable.");return;}
+  peOffsets={pe:peOff,timestamp:peOff+8,linkMajor:peOff+26,linkMinor:peOff+27,osMajor:peOff+64,osMinor:peOff+66,imgMajor:peOff+68,imgMinor:peOff+70,subsystem:peOff+92,dllFlags:peOff+94,checksum:peOff+88,numSections:peOff+6};
+  const ts=readU32LE(b,peOffsets.timestamp);
+  $("peTimestamp").value=ts;
+  $("peTimestampHuman").value=new Date(ts*1000).toLocaleString("fr-FR");
+  $("peLinkMajor").value=b[peOffsets.linkMajor];
+  $("peLinkMinor").value=b[peOffsets.linkMinor];
+  $("peOsMajor").value=readU16LE(b,peOffsets.osMajor);
+  $("peOsMinor").value=readU16LE(b,peOffsets.osMinor);
+  $("peImgMajor").value=readU16LE(b,peOffsets.imgMajor);
+  $("peImgMinor").value=readU16LE(b,peOffsets.imgMinor);
+  $("peSubsystem").value=readU16LE(b,peOffsets.subsystem);
+  $("peDllFlags").value=readU16LE(b,peOffsets.dllFlags).toString(16).toUpperCase();
+  $("peChecksum").value="0x"+readU32LE(b,peOffsets.checksum).toString(16).toUpperCase().padStart(8,"0");
+  const numSec=readU16LE(b,peOffsets.numSections);
+  const optSize=readU16LE(b,peOff+20);
+  let sOff=peOff+24+optSize;
+  let html="<div><b>Nom</b><b>VSize</b><b>RVA</b><b>Caract.</b></div>";
+  for(let i=0;i<numSec;i++){
+    const name=String.fromCharCode(...b.slice(sOff,sOff+8)).replace(/\0/g,"");
+    html+=`<div><span>${name}</span><span>0x${readU32LE(b,sOff+8).toString(16).toUpperCase()}</span><span>0x${readU32LE(b,sOff+12).toString(16).toUpperCase()}</span><span>0x${readU32LE(b,sOff+36).toString(16).toUpperCase()}</span></div>`;
+    sOff+=40;
+  }
+  $("peSectionsView").innerHTML=html;
+  $("peEditorBox").classList.remove("hidden");
+}
+
+$("peTimestamp").addEventListener("input",()=>{const ts=parseInt($("peTimestamp").value)||0;$("peTimestampHuman").value=new Date(ts*1000).toLocaleString("fr-FR");});
+$("peTsPlus").addEventListener("click",()=>{const v=(parseInt($("peTimestamp").value)||0)+1;$("peTimestamp").value=v;$("peTimestampHuman").value=new Date(v*1000).toLocaleString("fr-FR");});
+
+function applyPEChanges(){
+  const b=peBytes;
+  writeU32LE(b,peOffsets.timestamp,parseInt($("peTimestamp").value)||0);
+  b[peOffsets.linkMajor]=parseInt($("peLinkMajor").value)||0;
+  b[peOffsets.linkMinor]=parseInt($("peLinkMinor").value)||0;
+  writeU16LE(b,peOffsets.osMajor,parseInt($("peOsMajor").value)||0);
+  writeU16LE(b,peOffsets.osMinor,parseInt($("peOsMinor").value)||0);
+  writeU16LE(b,peOffsets.imgMajor,parseInt($("peImgMajor").value)||0);
+  writeU16LE(b,peOffsets.imgMinor,parseInt($("peImgMinor").value)||0);
+  writeU16LE(b,peOffsets.subsystem,parseInt($("peSubsystem").value)||2);
+  writeU16LE(b,peOffsets.dllFlags,parseInt($("peDllFlags").value,16)||0);
+  writeU32LE(b,peOffsets.checksum,0);
+  let sum=0,carry=0;
+  for(let i=0;i<b.length-1;i+=2){sum+=((b[i+1]<<8)|b[i])+carry;carry=sum>>>16;sum&=0xffff;}
+  if(b.length%2!==0){sum+=b[b.length-1]+carry;carry=sum>>>16;sum&=0xffff;}
+  sum=(sum+carry)&0xffff;
+  const cs=(sum+b.length)>>>0;
+  writeU32LE(b,peOffsets.checksum,cs);
+  $("peChecksum").value="0x"+cs.toString(16).toUpperCase().padStart(8,"0");
+}
+
+$("peRecalcChecksum").addEventListener("click",applyPEChanges);
+
+// Toggle sections MAJUSCULES / minuscules
+$("peToggleSections").addEventListener("click",()=>{
+  if(!peOffsets.pe)return;
+  const b=peBytes;
+  const numSec=readU16LE(b,peOffsets.numSections);
+  const optSize=readU16LE(b,peOffsets.pe+20);
+  let sOff=peOffsets.pe+24+optSize;
+  let toggled=0;
+  for(let i=0;i<numSec;i++){
+    for(let j=0;j<8;j++){
+      const c=b[sOff+j];
+      if(c>=65&&c<=90){b[sOff+j]=c+32;toggled++;}       // A-Z → a-z
+      else if(c>=97&&c<=122){b[sOff+j]=c-32;toggled++;} // a-z → A-Z
+    }
+    sOff+=40;
+  }
+  parsePE(); // rafraîchir l'affichage
+  log(`Noms de sections basculés (${toggled} caractères modifiés)`);
+});
+
+// Suppression Rich Header (zone entre 0x40 et le début de PE — remplie de zéros)
+$("peRemoveRich").addEventListener("click",()=>{
+  if(!peOffsets.pe)return;
+  const richStart=0x40;
+  const richEnd=peOffsets.pe;
+  if(richEnd<=richStart){log("Pas de Rich Header détecté.");return;}
+  peBytes.fill(0,richStart,richEnd);
+  log(`Rich Header supprimé (0x${richStart.toString(16).toUpperCase()}–0x${richEnd.toString(16).toUpperCase()}, ${richEnd-richStart} octets mis à zéro)`);
+});
+
+// Appliquer tout
+$("peApplyAll").addEventListener("click",()=>{
+  applyPEChanges();
+  log("✅ Toutes les modifications PE appliquées (timestamp, linker, OS, image, flags, checksum)");
+});
+
+async function peExport(){
+  applyPEChanges();
+  const name=peFileNameStr.replace(/(\.\w+)$/,"_modifié$1")||"modifié.exe";
+  await addToHistory(name, peBytes, peOrigBytes, 'pe');
+  const blob=new Blob([peBytes],{type:"application/octet-stream"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  log(`PE exporté : ${name}`);
+}
+$("peExportBtn").addEventListener("click", peExport);
+$("peScanBtn").addEventListener("click",async()=>{
+  applyPEChanges();
+  const name=peFileNameStr.replace(/(\.\w+)$/,"_modifié$1")||"modifié.exe";
+  await addToHistory(name, peBytes, peOrigBytes, 'pe');
+  doScan(new File([new Blob([peBytes])],name),name);
+});
+$("peScanBothBtn").addEventListener("click",async()=>{
+  if(!peOrigBytes||!peBytes){alert("Charge d'abord un fichier PE.");return;}
+  applyPEChanges();
+  const origName=peFileNameStr||"original.exe";
+  const modName=peFileNameStr.replace(/(\.\w+)$/,"_modifié$1")||"modifié.exe";
+  await addToHistory(modName, peBytes, peOrigBytes, 'pe');
+  await doCompareScan(peOrigBytes, peBytes, origName, modName);
+});
+
+// ─── HEX EDITOR ──────────────────────────────────────────────────────────────
+let hexPeOffsets = null;   // offsets PE détectés dans le fichier hex
+let hexPeHighlighted = []; // liste des offsets à surligner en vert
+
+$("hexBrowseBtn").addEventListener("click",()=>$("hexFileInput").click());
+$("hexFileInput").addEventListener("change",()=>{
+  const f=$("hexFileInput").files[0];if(!f)return;
+  hexFileNameStr=f.name;$("hexFileName").value=f.name;
+  const r=new FileReader();
+  r.onload=e=>{
+    hexBytes=new Uint8Array(e.target.result);
+    hexOrigBytes=new Uint8Array(hexBytes);
+    hexSelectedOffset=null;
+    hexPeOffsets=null;
+    hexPeHighlighted=[];
+    detectHexPE();
+    renderHex();
+    $("hexEditorBox").classList.remove("hidden");
+  };
+  r.readAsArrayBuffer(f);
+});
+
+function detectHexPE(){
+  const b=hexBytes;
+  if(b.length<64||b[0]!==0x4D||b[1]!==0x5A)return;
+  const peOff=readU32LE(b,0x3C);
+  if(peOff+4>b.length||b[peOff]!==0x50||b[peOff+1]!==0x45)return;
+  hexPeOffsets={
+    pe:peOff,
+    timestamp:peOff+8,
+    linkMajor:peOff+26, linkMinor:peOff+27,
+    osMajor:peOff+64,   osMinor:peOff+66,
+    imgMajor:peOff+68,  imgMinor:peOff+70,
+    subsystem:peOff+92, dllFlags:peOff+94,
+    checksum:peOff+88,  numSections:peOff+6,
+  };
+  // Remplir les champs
+  const ts=readU32LE(b,hexPeOffsets.timestamp);
+  $("hxTimestamp").value=ts;
+  $("hxTimestampHuman").value=new Date(ts*1000).toLocaleString("fr-FR");
+  $("hxLinkMajor").value=b[hexPeOffsets.linkMajor];
+  $("hxLinkMinor").value=b[hexPeOffsets.linkMinor];
+  $("hxOsMajor").value=readU16LE(b,hexPeOffsets.osMajor);
+  $("hxOsMinor").value=readU16LE(b,hexPeOffsets.osMinor);
+  $("hxImgMajor").value=readU16LE(b,hexPeOffsets.imgMajor);
+  $("hxImgMinor").value=readU16LE(b,hexPeOffsets.imgMinor);
+  $("hxDllFlags").value=readU16LE(b,hexPeOffsets.dllFlags).toString(16).toUpperCase();
+  $("hxChecksum").value="0x"+readU32LE(b,hexPeOffsets.checksum).toString(16).toUpperCase().padStart(8,"0");
+  $("hexPePanel").classList.remove("hidden");
+  buildPeHighlights();
+}
+
+function buildPeHighlights(){
+  if(!hexPeOffsets)return;
+  const o=hexPeOffsets;
+  hexPeHighlighted=[
+    o.timestamp,o.timestamp+1,o.timestamp+2,o.timestamp+3,
+    o.linkMajor,o.linkMinor,
+    o.osMajor,o.osMajor+1,o.osMinor,o.osMinor+1,
+    o.imgMajor,o.imgMajor+1,o.imgMinor,o.imgMinor+1,
+    o.subsystem,o.subsystem+1,
+    o.dllFlags,o.dllFlags+1,
+    o.checksum,o.checksum+1,o.checksum+2,o.checksum+3,
+  ];
+}
+
+function hxWriteU16(off,val){writeU16LE(hexBytes,off,val);renderHex();}
+function hxWriteU32(off,val){writeU32LE(hexBytes,off,val);renderHex();}
+function hxRecalcChecksum(){
+  if(!hexPeOffsets)return;
+  writeU32LE(hexBytes,hexPeOffsets.checksum,0);
+  let sum=0,carry=0;
+  for(let i=0;i<hexBytes.length-1;i+=2){sum+=((hexBytes[i+1]<<8)|hexBytes[i])+carry;carry=sum>>>16;sum&=0xffff;}
+  if(hexBytes.length%2!==0){sum+=hexBytes[hexBytes.length-1]+carry;carry=sum>>>16;sum&=0xffff;}
+  sum=(sum+carry)&0xffff;
+  const cs=(sum+hexBytes.length)>>>0;
+  writeU32LE(hexBytes,hexPeOffsets.checksum,cs);
+  $("hxChecksum").value="0x"+cs.toString(16).toUpperCase().padStart(8,"0");
+  log(`Checksum recalculé : 0x${cs.toString(16).toUpperCase()}`);
+  renderHex();
+}
+
+// Boutons PE auto-modify
+$("hxTimestamp").addEventListener("input",()=>{const ts=parseInt($("hxTimestamp").value)||0;$("hxTimestampHuman").value=new Date(ts*1000).toLocaleString("fr-FR");});
+$("hxTsPlus").addEventListener("click",()=>{const v=(parseInt($("hxTimestamp").value)||0)+1;$("hxTimestamp").value=v;$("hxTimestampHuman").value=new Date(v*1000).toLocaleString("fr-FR");});
+$("hxTsApply").addEventListener("click",()=>{if(!hexPeOffsets)return;const v=parseInt($("hxTimestamp").value)||0;hxWriteU32(hexPeOffsets.timestamp,v);log(`Timestamp → ${v}`);});
+$("hxLinkMajorApply").addEventListener("click",()=>{if(!hexPeOffsets)return;const v=parseInt($("hxLinkMajor").value)||0;hexBytes[hexPeOffsets.linkMajor]=v&0xff;renderHex();log(`Linker Major → ${v}`);});
+$("hxLinkMinorApply").addEventListener("click",()=>{if(!hexPeOffsets)return;const v=parseInt($("hxLinkMinor").value)||0;hexBytes[hexPeOffsets.linkMinor]=v&0xff;renderHex();log(`Linker Minor → ${v}`);});
+$("hxOsMajorApply").addEventListener("click",()=>{if(!hexPeOffsets)return;hxWriteU16(hexPeOffsets.osMajor,parseInt($("hxOsMajor").value)||0);log(`OS Major → ${$("hxOsMajor").value}`);});
+$("hxOsMinorApply").addEventListener("click",()=>{if(!hexPeOffsets)return;hxWriteU16(hexPeOffsets.osMinor,parseInt($("hxOsMinor").value)||0);log(`OS Minor → ${$("hxOsMinor").value}`);});
+$("hxImgMajorApply").addEventListener("click",()=>{if(!hexPeOffsets)return;hxWriteU16(hexPeOffsets.imgMajor,parseInt($("hxImgMajor").value)||0);log(`Image Major → ${$("hxImgMajor").value}`);});
+$("hxImgMinorApply").addEventListener("click",()=>{if(!hexPeOffsets)return;hxWriteU16(hexPeOffsets.imgMinor,parseInt($("hxImgMinor").value)||0);log(`Image Minor → ${$("hxImgMinor").value}`);});
+$("hxDllFlagsApply").addEventListener("click",()=>{if(!hexPeOffsets)return;hxWriteU16(hexPeOffsets.dllFlags,parseInt($("hxDllFlags").value,16)||0);log(`DLL Flags → 0x${$("hxDllFlags").value}`);});
+$("hxRecalcChecksum").addEventListener("click",hxRecalcChecksum);
+
+function renderHex(){
+  const b=hexBytes,COLS=16,MAX=512;
+  const rows=Math.min(Math.ceil(b.length/COLS),MAX);
+  let html="";
+  for(let r=0;r<rows;r++){
+    const addr=(r*COLS).toString(16).toUpperCase().padStart(8,"0");
+    let hex="",asc="";
+    for(let c=0;c<COLS;c++){
+      const off=r*COLS+c;
+      if(off>=b.length){hex+="<td></td>";continue;}
+      const v=b[off];
+      const sel=off===hexSelectedOffset?" selected":"";
+      const mod=(hexOrigBytes&&v!==hexOrigBytes[off])?" modified":"";
+      hex+=`<td class="hex-cell${sel}${mod}" data-off="${off}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
+      asc+=(v>=32&&v<127)?String.fromCharCode(v):".";
+    }
+    html+=`<tr><td class="hex-addr">${addr}</td>${hex}<td class="hex-ascii">${asc}</td></tr>`;
+  }
+  $("hexTable").innerHTML=html;
+  $("hexTable").querySelectorAll(".hex-cell").forEach(cell=>{
+    cell.addEventListener("click",()=>{
+      hexSelectedOffset=parseInt(cell.dataset.off);
+      $("hexOffsetDisplay").value="0x"+hexSelectedOffset.toString(16).toUpperCase().padStart(8,"0");
+      $("hexValueInput").value=hexBytes[hexSelectedOffset].toString(16).toUpperCase().padStart(2,"0");
+      $("hexTable").querySelectorAll(".hex-cell").forEach(c=>c.classList.remove("selected"));
+      cell.classList.add("selected");
+    });
+  });
+}
+
+$("hexApplyBtn").addEventListener("click",()=>{
+  if(hexSelectedOffset===null){alert("Sélectionne d'abord un octet.");return;}
+  const val=parseInt($("hexValueInput").value,16);
+  if(isNaN(val)||val<0||val>255){alert("Valeur hex invalide (00 à FF).");return;}
+  hexBytes[hexSelectedOffset]=val;
+  log(`Offset 0x${hexSelectedOffset.toString(16).toUpperCase()} → 0x${val.toString(16).toUpperCase().padStart(2,"0")}`);
+  renderHex();
+});
+
+$("hexResetBtn").addEventListener("click",()=>{
+  if(!hexOrigBytes)return;
+  hexBytes=new Uint8Array(hexOrigBytes);hexSelectedOffset=null;
+  $("hexOffsetDisplay").value="—";$("hexValueInput").value="";
+  log("Fichier réinitialisé.");renderHex();
+});
+
+async function hexExport(){
+  const name=hexFileNameStr.replace(/(\.\w+)$/,"_hex$1")||"modifié.bin";
+  await addToHistory(name, hexBytes, hexOrigBytes, 'hex');
+  const blob=new Blob([hexBytes],{type:"application/octet-stream"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  log(`Fichier hex exporté : ${name}`);
+}
+$("hexExportBtn").addEventListener("click", hexExport);
+$("hexScanBtn").addEventListener("click",async()=>{
+  const name=hexFileNameStr.replace(/(\.\w+)$/,"_hex$1")||"modifié.bin";
+  await addToHistory(name, hexBytes, hexOrigBytes, 'hex');
+  doScan(new File([new Blob([hexBytes])],name),name);
+});
+// ─── EXE DE TEST ─────────────────────────────────────────────────────────────
+function generateTestPE(){
+  // PE minimal valide (MZ + DOS stub + PE header + optional header + sections)
+  // Taille : ~4 Ko, structure conforme Windows PE32
+  const buf = new Uint8Array(4096).fill(0);
+  const w16 = (off,v)=>writeU16LE(buf,off,v);
+  const w32 = (off,v)=>writeU32LE(buf,off,v);
+
+  // ── DOS Header (64 bytes) ──
+  buf[0]=0x4D; buf[1]=0x5A; // MZ
+  w16(2,0x90);  // bytes on last page
+  w16(4,3);     // pages in file
+  w16(6,0);     // relocations
+  w16(8,4);     // size of header in paragraphs
+  w16(0x3C,0x80); // offset to PE header = 0x80
+
+  // ── DOS Stub (simple "This program cannot be run in DOS mode" simulé) ──
+  const dosStub = "This program cannot be run in DOS mode.\r\n$";
+  for(let i=0;i<dosStub.length;i++) buf[0x40+i]=dosStub.charCodeAt(i);
+
+  // ── Rich Header simulé (entre 0x40 et 0x80) ──
+  // Juste quelques bytes pour simuler un Rich Header MSVC
+  buf[0x60]=0x52;buf[0x61]=0x69;buf[0x62]=0x63;buf[0x63]=0x68; // "Rich"
+  w32(0x64, 0xDEADBEEF); // XOR key simulée
+
+  // ── PE Signature à 0x80 ──
+  const PE=0x80;
+  buf[PE]=0x50; buf[PE+1]=0x45; buf[PE+2]=0; buf[PE+3]=0; // "PE\0\0"
+
+  // ── COFF Header (20 bytes à PE+4) ──
+  w16(PE+4, 0x014C);  // Machine: i386
+  w16(PE+6, 3);       // NumberOfSections: 3 (.text, .rdata, .data)
+  w32(PE+8, 0x5A3C8C5C); // TimeDateStamp
+  w32(PE+12, 0);      // PointerToSymbolTable
+  w32(PE+16, 0);      // NumberOfSymbols
+  w16(PE+20, 0xE0);   // SizeOfOptionalHeader = 224
+  w16(PE+22, 0x0102); // Characteristics
+
+  // ── Optional Header PE32 (224 bytes à PE+24) ──
+  const OPT=PE+24;
+  w16(OPT, 0x010B);      // Magic: PE32
+  buf[OPT+2]=0x0E;       // MajorLinkerVersion = 14
+  buf[OPT+3]=0x10;       // MinorLinkerVersion = 16
+  w32(OPT+4,  0x1000);   // SizeOfCode
+  w32(OPT+8,  0x800);    // SizeOfInitializedData
+  w32(OPT+12, 0);        // SizeOfUninitializedData
+  w32(OPT+16, 0x1000);   // AddressOfEntryPoint (RVA)
+  w32(OPT+20, 0x1000);   // BaseOfCode
+  w32(OPT+24, 0x2000);   // BaseOfData (PE32 only)
+  w32(OPT+28, 0x00400000); // ImageBase
+  w32(OPT+32, 0x1000);   // SectionAlignment
+  w32(OPT+36, 0x200);    // FileAlignment
+  w16(OPT+40, 6);        // MajorOSVersion
+  w16(OPT+42, 0);        // MinorOSVersion
+  w16(OPT+44, 0);        // MajorImageVersion
+  w16(OPT+46, 0);        // MinorImageVersion
+  w16(OPT+48, 6);        // MajorSubsystemVersion
+  w16(OPT+50, 0);        // MinorSubsystemVersion
+  w32(OPT+52, 0);        // Win32VersionValue
+  w32(OPT+56, 0x4000);   // SizeOfImage
+  w32(OPT+60, 0x400);    // SizeOfHeaders
+  w32(OPT+64, 0);        // CheckSum (recalculé après)
+  w16(OPT+68, 2);        // Subsystem: GUI
+  w16(OPT+70, 0x8140);   // DllCharacteristics: DYNAMIC_BASE + NX_COMPAT
+  w32(OPT+72, 0x100000); // SizeOfStackReserve
+  w32(OPT+76, 0x1000);   // SizeOfStackCommit
+  w32(OPT+80, 0x100000); // SizeOfHeapReserve
+  w32(OPT+84, 0x1000);   // SizeOfHeapCommit
+  w32(OPT+88, 0);        // LoaderFlags
+  w32(OPT+92, 16);       // NumberOfRvaAndSizes
+
+  // ── Section Headers (3 sections à PE+24+224 = PE+248) ──
+  const SEC=PE+248;
+
+  // .text
+  const tname=".text\0\0\0";
+  for(let i=0;i<8;i++) buf[SEC+i]=tname.charCodeAt(i)||0;
+  w32(SEC+8,  0x800);    // VirtualSize
+  w32(SEC+12, 0x1000);   // VirtualAddress
+  w32(SEC+16, 0x200);    // SizeOfRawData
+  w32(SEC+20, 0x400);    // PointerToRawData
+  w32(SEC+36, 0x60000020); // Characteristics: CODE|EXECUTE|READ
+
+  // .rdata
+  const rname=".rdata\0\0";
+  for(let i=0;i<8;i++) buf[SEC+40+i]=rname.charCodeAt(i)||0;
+  w32(SEC+48, 0x400);
+  w32(SEC+52, 0x2000);
+  w32(SEC+56, 0x200);
+  w32(SEC+60, 0x600);
+  w32(SEC+76, 0x40000040); // Characteristics: INIT_DATA|READ
+
+  // .data
+  const dname=".data\0\0\0";
+  for(let i=0;i<8;i++) buf[SEC+80+i]=dname.charCodeAt(i)||0;
+  w32(SEC+88, 0x200);
+  w32(SEC+92, 0x3000);
+  w32(SEC+96, 0x200);
+  w32(SEC+100, 0x800);
+  w32(SEC+116, 0xC0000040); // Characteristics: INIT_DATA|READ|WRITE
+
+  // ── VS_FIXEDFILEINFO dans .rdata à offset 0x600 ──
+  const VI=0x600;
+  // Magic: FE EF 04 BD
+  buf[VI]=0xFE; buf[VI+1]=0xEF; buf[VI+2]=0x04; buf[VI+3]=0xBD;
+  w32(VI+4,  0x00010000); // StrucVersion
+  w32(VI+8,  0x00010000); // FileVersionMS  = 1.0
+  w32(VI+12, 0x00000000); // FileVersionLS  = 0.0
+  w32(VI+16, 0x00010000); // ProductVersionMS
+  w32(VI+20, 0x00000000); // ProductVersionLS
+
+  // ── Manifest XML dans .rdata ──
+  const manifest = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n' +
+    '<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">\r\n' +
+    '  <assemblyIdentity version="1.0.0.0" processorArchitecture="x86"\r\n' +
+    '    name="TestApp" type="win32"/>\r\n' +
+    '  <description>Test Application</description>\r\n' +
+    '</assembly>\r\n';
+  const mOff=0x650;
+  for(let i=0;i<manifest.length&&mOff+i<buf.length;i++)
+    buf[mOff+i]=manifest.charCodeAt(i);
+
+  // ── Code minimal dans .text (RET instruction) ──
+  buf[0x400]=0xC3; // RET
+
+  // ── Quelques strings ASCII dans .data ──
+  const strings=["TestApp v1.0","Copyright 2024","example.com"];
+  let sOff=0x800;
+  for(const s of strings){
+    for(let i=0;i<s.length;i++) buf[sOff+i]=s.charCodeAt(i);
+    sOff+=s.length+2;
+  }
+
+  // ── Recalcul checksum ──
+  w32(OPT+64,0);
+  let sum=0,carry=0;
+  for(let i=0;i<buf.length-1;i+=2){sum+=((buf[i+1]<<8)|buf[i])+carry;carry=sum>>>16;sum&=0xffff;}
+  sum=(sum+carry)&0xffff;
+  const cs=(sum+buf.length)>>>0;
+  w32(OPT+64,cs);
+
+  return buf;
+}
+
+$("hexLoadTestBtn").addEventListener("click",()=>{
+  hexBytes = generateTestPE();
+  hexOrigBytes = new Uint8Array(hexBytes);
+  hexFileNameStr = "test_sample.exe";
+  $("hexFileName").value = hexFileNameStr;
+  hexSelectedOffset = null;
+  hexPeOffsets = null;
+  hexPeHighlighted = [];
+  detectHexPE();
+  renderHex();
+  $("hexEditorBox").classList.remove("hidden");
+  log("EXE de test généré (PE32 valide) — Smart Modify disponible ✅");
+});
+function randInt(min,max){return Math.floor(Math.random()*(max-min+1))+min;}
+function randFrom(arr){return arr[Math.floor(Math.random()*arr.length)];}
+
+const LV_OPTIONS=[[6,0],[7,1],[8,0],[9,0],[10,0],[11,0],[12,0],[14,0],[14,16],[14,29],[14,34],[14,38]];
+const OS_OPTIONS=[[4,0],[5,0],[5,1],[5,2],[6,0],[6,1],[6,2],[10,0]];
+const DLL_OPTIONS=[0x0140,0x8140,0x4160,0x0160,0x8160,0x0540,0x8540];
+
+function smTimestampFn(b){
+  const tsMin=new Date('2018-01-01').getTime()/1000;
+  const tsMax=new Date('2024-06-01').getTime()/1000;
+  const v=Math.floor(randInt(tsMin,tsMax));
+  writeU32LE(b,hexPeOffsets.timestamp,v);
+  return `Timestamp → ${new Date(v*1000).toLocaleDateString('fr-FR')}`;
+}
+function smLinkerFn(b){
+  const lv=randFrom(LV_OPTIONS);
+  b[hexPeOffsets.linkMajor]=lv[0];b[hexPeOffsets.linkMinor]=lv[1];
+  return `Linker → ${lv[0]}.${lv[1]}`;
+}
+function smOsFn(b){
+  const v=randFrom(OS_OPTIONS);
+  writeU16LE(b,hexPeOffsets.osMajor,v[0]);writeU16LE(b,hexPeOffsets.osMinor,v[1]);
+  return `OS Version → ${v[0]}.${v[1]}`;
+}
+function smImageFn(b){
+  const maj=randInt(0,6),min=randInt(0,2);
+  writeU16LE(b,hexPeOffsets.imgMajor,maj);writeU16LE(b,hexPeOffsets.imgMinor,min);
+  return `Image Version → ${maj}.${min}`;
+}
+function smDllFn(b){
+  const v=randFrom(DLL_OPTIONS);
+  writeU16LE(b,hexPeOffsets.dllFlags,v);
+  return `DLL Flags → 0x${v.toString(16).toUpperCase()}`;
+}
+function smSectionsFn(b){
+  const numSec=readU16LE(b,hexPeOffsets.numSections);
+  const optSize=readU16LE(b,hexPeOffsets.pe+20);
+  let sOff=hexPeOffsets.pe+24+optSize,toggled=0;
+  for(let i=0;i<numSec;i++){
+    for(let j=0;j<8;j++){const c=b[sOff+j];if(c>=97&&c<=122){b[sOff+j]=c-32;toggled++;}}
+    sOff+=40;
+  }
+  return toggled>0?`Sections → MAJUSCULES (${toggled} car.)`:null;
+}
+function smRichFn(b){
+  const start=0x40,end=hexPeOffsets.pe;
+  if(end>start+8){b.fill(0,start,end);return `Rich Header supprimé (${end-start} octets)`;}
+  return null;
+}
+function smStringsPaddingFn(b){
+  let count=0;
+  for(let i=hexPeOffsets.pe+256;i<b.length-8&&count<12;i++){
+    if(b[i]===0&&b[i+1]===0&&b[i+2]===0&&b[i+3]===0&&b[i+4]===0){
+      b[i+2]=randInt(1,15);count++;i+=16;
+    }
+  }
+  return count>0?`Strings padding → ${count} zones`:null;
+}
+function smVersionInfoFn(b){
+  const magic=[0xFE,0xEF,0x04,0xBD];
+  for(let i=0;i<b.length-52;i++){
+    if(b[i]===magic[0]&&b[i+1]===magic[1]&&b[i+2]===magic[2]&&b[i+3]===magic[3]){
+      const maj=randInt(1,9),min=randInt(0,9),build=randInt(1000,9999),rev=randInt(0,999);
+      writeU32LE(b,i+8,(maj<<16)|min);
+      writeU32LE(b,i+12,(build<<16)|rev);
+      writeU32LE(b,i+16,(maj<<16)|min);
+      writeU32LE(b,i+20,(build<<16)|rev);
+      return `VersionInfo → v${maj}.${min}.${build}.${rev}`;
+    }
+  }
+  return null;
+}
+function smManifestFn(b){
+  const sig=[0x3C,0x3F,0x78,0x6D,0x6C]; // <?xml
+  for(let i=0;i<b.length-200;i++){
+    if(sig.every((v,j)=>b[i+j]===v)){
+      const vStr='version="';
+      for(let j=0;j<Math.min(500,b.length-i-12);j++){
+        if(vStr.split('').every((c,k)=>b[i+j+k]===c.charCodeAt(0))){
+          const vOff=i+j+vStr.length;
+          if(b[vOff]>=0x30&&b[vOff]<=0x39){
+            b[vOff]=((b[vOff]-0x30+1)%9+1)+0x30;
+            return `Manifest version incrémentée`;
+          }
+        }
+      }
+      return null;
+    }
+  }
+  return null;
+}
+function smIconsFn(b){
+  let found=0;
+  for(let i=hexPeOffsets.pe;i<b.length-44;i++){
+    if(b[i]===0x28&&b[i+1]===0x00&&b[i+2]===0x00&&b[i+3]===0x00){
+      const w=readU32LE(b,i+4);
+      if(w>=16&&w<=256){
+        const pxOff=i+40;
+        if(pxOff+4<b.length){b[pxOff]^=0x01;found++;break;}
+      }
+    }
+  }
+  return found>0?`${found} icône(s) modifiée(s)`:null;
+}
+function smChecksumFn(b){
+  writeU32LE(b,hexPeOffsets.checksum,0);
+  let sum=0,carry=0;
+  for(let i=0;i<b.length-1;i+=2){sum+=((b[i+1]<<8)|b[i])+carry;carry=sum>>>16;sum&=0xffff;}
+  if(b.length%2!==0){sum+=b[b.length-1]+carry;carry=sum>>>16;sum&=0xffff;}
+  sum=(sum+carry)&0xffff;const cs=(sum+b.length)>>>0;
+  writeU32LE(b,hexPeOffsets.checksum,cs);
+  return `Checksum → 0x${cs.toString(16).toUpperCase().padStart(8,'0')}`;
+}
+
+$("hxSmartModify").addEventListener("click",async()=>{
+  if(!hexPeOffsets){alert("Pas de structure PE détectée dans ce fichier.");return;}
+  const b=hexBytes;
+  const mods=[];
+  if($("smTimestamp").checked){const r=smTimestampFn(b);if(r)mods.push(r);}
+  if($("smLinker").checked){const r=smLinkerFn(b);if(r)mods.push(r);}
+  if($("smOs").checked){const r=smOsFn(b);if(r)mods.push(r);}
+  if($("smImage").checked){const r=smImageFn(b);if(r)mods.push(r);}
+  if($("smDll").checked){const r=smDllFn(b);if(r)mods.push(r);}
+  if($("smSections").checked){const r=smSectionsFn(b);if(r)mods.push(r);}
+  if($("smRich").checked){const r=smRichFn(b);if(r)mods.push(r);}
+  if($("smStrings").checked){const r=smStringsPaddingFn(b);if(r)mods.push(r);}
+  if($("smVersionInfo").checked){const r=smVersionInfoFn(b);if(r)mods.push(r);}
+  if($("smManifest").checked){const r=smManifestFn(b);if(r)mods.push(r);}
+  if($("smIcons").checked){const r=smIconsFn(b);if(r)mods.push(r);}
+  if($("smChecksum").checked){const r=smChecksumFn(b);if(r)mods.push(r);}
+  detectHexPE();renderHex();
+  const res=$("smartModResult");
+  res.innerHTML=mods.map(m=>`<div>✅ ${m}</div>`).join('')||'<div>Aucune modification appliquée.</div>';
+  res.classList.remove("hidden");
+  mods.forEach(m=>log(`[Smart] ${m}`));
+  log(`✅ Smart Modify terminé — ${mods.length} modification(s)`);
+});
+
+// Strings Find & Replace
+$("hxStrReplace").addEventListener("click",()=>{
+  const find=$("hxFindStr").value;
+  const repl=$("hxReplStr").value;
+  if(!find){alert("Entre un texte à chercher.");return;}
+  const b=hexBytes;
+  const enc=new TextEncoder();
+  const findBytes=enc.encode(find);
+  let count=0;
+  for(let i=0;i<b.length-findBytes.length;i++){
+    if(findBytes.every((v,j)=>b[i+j]===v)){
+      // Remplacer avec padding/truncation pour garder la même longueur
+      for(let j=0;j<findBytes.length;j++){
+        b[i+j]=j<repl.length?repl.charCodeAt(j):0x00;
+      }
+      count++;i+=findBytes.length-1;
+    }
+  }
+  if(count>0){renderHex();log(`Strings: "${find}" remplacé par "${repl}" — ${count} occurrence(s)`);}
+  else{alert(`"${find}" non trouvé dans le fichier.`);}
+});
+</script>
+</body>
+</html>
