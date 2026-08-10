@@ -652,15 +652,53 @@ async function pollStatus(params,maxTries=40,intervalMs=3000){
   throw new Error("Timeout — l'analyse prend trop de temps.");
 }
 
+const MAX_UPLOAD_SIZE = 4 * 1024 * 1024; // 4 Mo — limite safe Vercel Hobby
+
+async function sha256File(file) {
+  const buf = await file.arrayBuffer();
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
 async function doScanReturn(fileObj, label){
   $("scanBtn").disabled=true;
-  $("statusBar").textContent="Envoi en cours…";
-  $("resultBox").classList.add("hidden");
+  $("statusBar").textContent="Calcul du hash…";
   startTimer();
-  log(`Envoi de "${label}"…`);
-  const form=new FormData();
-  form.append("file",fileObj,label);
+  log(`Calcul SHA-256 de "${label}"…`);
+
   try{
+    // 1. Calcul hash côté client
+    const hash = await sha256File(fileObj);
+    log(`SHA-256 : ${hash.substring(0,16)}…`);
+
+    // 2. Vérifier si VT connaît déjà ce fichier (pas d'upload)
+    $("statusBar").textContent="Vérification dans VT…";
+    const checkRes = await fetch(`/api/check-hash?hash=${hash}&filename=${encodeURIComponent(label)}&size=${fileObj.size}`);
+    if(checkRes.ok){
+      const checkData = await checkRes.json();
+      if(checkData.found){
+        log("✅ Fichier déjà connu de VirusTotal — résultat récupéré sans upload.");
+        renderResult(checkData);
+        $("statusBar").textContent="Prêt";
+        return checkData;
+      }
+    }
+
+    // 3. Fichier inconnu de VT
+    if(fileObj.size > MAX_UPLOAD_SIZE){
+      // Fichier trop gros pour Vercel Hobby — orienter vers VT directement
+      const msg = `Fichier inconnu de VT et trop grand pour l'upload automatique (${(fileObj.size/1024/1024).toFixed(1)} Mo > 4 Mo).\n\nTu peux l'uploader manuellement sur :\nhttps://www.virustotal.com/gui/home/upload`;
+      log(`⚠️ Fichier trop grand pour l'upload (${(fileObj.size/1024/1024).toFixed(1)} Mo)`);
+      $("statusBar").textContent="Fichier trop grand";
+      alert(msg);
+      return null;
+    }
+
+    // 4. Upload normal (fichier inconnu et <= 4 Mo)
+    $("statusBar").textContent="Envoi en cours…";
+    log(`Fichier inconnu — envoi à VirusTotal (${(fileObj.size/1024/1024).toFixed(2)} Mo)…`);
+    const form=new FormData();
+    form.append("file",fileObj,label);
     const res=await fetch("/api/scan",{method:"POST",body:form});
     if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`Erreur ${res.status}`);}
     let data=await res.json();
