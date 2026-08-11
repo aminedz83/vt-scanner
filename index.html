@@ -1194,40 +1194,44 @@ $("peModManifest").addEventListener("click",()=>{
   log("Manifest : modification automatique impossible — utilise l'éditeur Hex");
 });
 
-$("peRandomIcons").addEventListener("click",()=>{
+$("peRandomIcons").addEventListener("click",async()=>{
   if(!peResources||!peResources.icons) return;
   const iOff=rvaToOff(peResources.icons.rva,peSectionsList);
   if(iOff<0) return;
   const b=peBytes;
   const iSize=peResources.icons.size;
 
-  // Chercher BITMAPINFOHEADER (0x28 0x00 0x00 0x00) dans les données icône
+  // Hash avant
+  const hashBefore=await sha256hex(b.buffer);
+
   let headerStart=-1;
   for(let i=iOff;i<iOff+Math.min(iSize,200)&&i<b.length-4;i++){
     if(b[i]===0x28&&b[i+1]===0x00&&b[i+2]===0x00&&b[i+3]===0x00){headerStart=i;break;}
   }
-
   if(headerStart>=0){
     const bpp=readU16LE(b,headerStart+14);
-    const paletteEntries=bpp<=8?(1<<bpp):0;
-    const paletteBytes=paletteEntries*4;
+    const paletteBytes=(bpp<=8?(1<<bpp):0)*4;
     const pixelStart=headerStart+40+paletteBytes;
-    // Modifier 8 octets espacés dans les données pixel
     for(let j=0;j<8;j++){
       const pOff=pixelStart+j*8;
       if(pOff<b.length&&pOff<iOff+iSize) b[pOff]^=randInt(1,15);
     }
-    log(`Icône modifiée (${bpp}bpp)`);
   } else {
-    // Fallback : modifier des octets dans la seconde moitié des données icône
     const start=iOff+Math.floor(iSize*0.5);
     for(let j=0;j<12;j++){
       const pOff=start+j*4;
       if(pOff<b.length&&pOff<iOff+iSize) b[pOff]^=randInt(1,15);
     }
-    log("Icône modifiée (mode fallback)");
   }
+
+  // Hash après
+  const hashAfter=await sha256hex(b.buffer);
   parsePE();
+  log(`Icône randomisée ✅`);
+
+  // Afficher confirmation
+  const msg=`✅ Icône modifiée !\n\nSHA-256 avant :\n${hashBefore.substring(0,32)}…\n\nSHA-256 après :\n${hashAfter.substring(0,32)}…`;
+  alert(msg);
 });
 
 // Toggle sections MAJUSCULES / minuscules
