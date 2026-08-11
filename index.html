@@ -428,6 +428,7 @@
       <fieldset>
         <legend>Vue hexadécimale</legend>
         <div class="hex-wrap"><table class="hex-table" id="hexTable"></table></div>
+        <div id="hexPageNav" class="hidden" style="display:flex;gap:10px;align-items:center;justify-content:center;margin-top:8px;"></div>
         <div class="hex-edit-row">
           <label>Offset :</label>
           <input type="text" id="hexOffsetDisplay" readonly value="—" style="width:90px;flex:none;" />
@@ -665,18 +666,16 @@ async function sha256File(file) {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
-async function doScanReturn(fileObj, label){
+async function doScanReturn(fileObj, label, silent=false){
   $("scanBtn").disabled=true;
   $("statusBar").textContent="Calcul du hash…";
   startTimer();
   log(`Calcul SHA-256 de "${label}"…`);
 
   try{
-    // 1. Calcul hash côté client
     const hash = await sha256File(fileObj);
     log(`SHA-256 : ${hash.substring(0,16)}…`);
 
-    // 2. Vérifier si VT connaît déjà ce fichier (pas d'upload)
     $("statusBar").textContent="Vérification dans VT…";
     const checkRes = await fetch(`/api/check-hash?hash=${hash}&filename=${encodeURIComponent(label)}&size=${fileObj.size}`);
     if(checkRes.ok){
@@ -689,17 +688,14 @@ async function doScanReturn(fileObj, label){
       }
     }
 
-    // 3. Fichier inconnu de VT
     if(fileObj.size > MAX_UPLOAD_SIZE){
-      // Fichier trop gros pour Vercel Hobby — orienter vers VT directement
-      const msg = `Fichier inconnu de VT et trop grand pour l'upload automatique (${(fileObj.size/1024/1024).toFixed(1)} Mo > 4 Mo).\n\nTu peux l'uploader manuellement sur :\nhttps://www.virustotal.com/gui/home/upload`;
-      log(`⚠️ Fichier trop grand pour l'upload (${(fileObj.size/1024/1024).toFixed(1)} Mo)`);
+      const msg=`Fichier inconnu de VT et trop grand (${(fileObj.size/1024/1024).toFixed(1)} Mo > 4 Mo).`;
+      log(`⚠️ ${msg}`);
       $("statusBar").textContent="Fichier trop grand";
-      alert(msg);
+      if(!silent) alert(msg+"\n\nTu peux l'uploader manuellement sur :\nhttps://www.virustotal.com/gui/home/upload");
       return null;
     }
 
-    // 4. Upload normal (fichier inconnu et <= 4 Mo)
     $("statusBar").textContent="Envoi en cours…";
     log(`Fichier inconnu — envoi à VirusTotal (${(fileObj.size/1024/1024).toFixed(2)} Mo)…`);
     const form=new FormData();
@@ -712,8 +708,12 @@ async function doScanReturn(fileObj, label){
     renderResult(data);
     $("statusBar").textContent="Prêt";
     return data;
-  }catch(e){log(`Erreur : ${e.message}`);$("statusBar").textContent="Erreur";alert("Échec : "+e.message);return null;}
-  finally{stopTimer();$("scanBtn").disabled=false;}
+  }catch(e){
+    log(`Erreur scan : ${e.message}`);
+    $("statusBar").textContent="Erreur";
+    if(!silent) alert("Échec : "+e.message);
+    return null;
+  }finally{stopTimer();$("scanBtn").disabled=false;}
 }
 
 async function doScan(fileObj, label){
@@ -802,22 +802,27 @@ function rvaToOff(rva,secs){
 function parseImports(b,secs,ddb){
   const iRVA=readU32LE(b,ddb+8); if(!iRVA) return [];
   const iOff=rvaToOff(iRVA,secs); if(iOff<0) return [];
+  const thunkSize=peIsPE64?8:4;
+  const ordMask=peIsPE64?0x8000000000000000:0x80000000;
   const imports=[]; let off=iOff;
   while(off+20<=b.length){
     const orig=readU32LE(b,off),nameRVA=readU32LE(b,off+12),first=readU32LE(b,off+16);
     if(!nameRVA&&!first) break;
     const nOff=rvaToOff(nameRVA,secs); let dll='';
-    if(nOff>=0) for(let i=nOff;i<b.length&&b[i];i++) dll+=String.fromCharCode(b[i]);
+    if(nOff>=0) for(let i=nOff;i<b.length&&b[i]&&i<nOff+64;i++) dll+=String.fromCharCode(b[i]);
     const funcs=[]; const thunkRVA=orig||first;
     if(thunkRVA){
       let tOff=rvaToOff(thunkRVA,secs);
-      while(tOff>=0&&tOff+4<=b.length){
-        const v=readU32LE(b,tOff); if(!v) break;
-        if(!(v&0x80000000)){
-          const fOff=rvaToOff(v,secs);
-          if(fOff>=0){let fn='';for(let i=fOff+2;i<b.length&&b[i];i++) fn+=String.fromCharCode(b[i]);if(fn) funcs.push(fn);}
-        } else funcs.push(`Ord:${v&0xFFFF}`);
-        tOff+=4; if(funcs.length>=15){funcs.push('…');break;}
+      while(tOff>=0&&tOff+thunkSize<=b.length){
+        const lo=readU32LE(b,tOff);
+        const hi=peIsPE64?readU32LE(b,tOff+4):0;
+        if(!lo&&!hi) break;
+        const isOrdinal=peIsPE64?(hi&0x80000000):(lo&0x80000000);
+        if(!isOrdinal){
+          const fOff=rvaToOff(lo,secs);
+          if(fOff>=0){let fn='';for(let i=fOff+2;i<b.length&&b[i]&&i<fOff+66;i++) fn+=String.fromCharCode(b[i]);if(fn) funcs.push(fn);}
+        } else funcs.push(`Ord:${lo&0xFFFF}`);
+        tOff+=thunkSize; if(funcs.length>=15){funcs.push('…');break;}
       }
     }
     if(dll) imports.push({dll,funcs}); off+=20; if(imports.length>50) break;
@@ -825,8 +830,10 @@ function parseImports(b,secs,ddb){
 }
 function detectOverlay(b,secs){
   let mx=0;
-  for(const s of secs) if(s.rawOffset&&s.rawSize) mx=Math.max(mx,s.rawOffset+s.rawSize);
-  return mx>0&&b.length>mx?{offset:mx,size:b.length-mx}:null;
+  for(const s of secs) if(s.rawOffset>0&&s.rawSize>0) mx=Math.max(mx,s.rawOffset+s.rawSize);
+  // Ignore les écarts < 16 octets (padding d'alignement normal, pas un vrai overlay)
+  if(mx>0 && b.length>mx+16) return {offset:mx,size:b.length-mx};
+  return null;
 }
 function removeSignature(b,ddb){
   const o=ddb+32;
@@ -1106,6 +1113,14 @@ $("peReplaceIconInput").addEventListener("change",()=>{
     const b=peBytes;
     const rowStride=origW*4; // 32bpp, pas de padding nécessaire pour multiples de 4
     const newPixSize=origW*rowStride;
+    const needed=40+newPixSize; // header + pixels
+
+    // Vérifier que ça tient dans l'espace de la ressource icône
+    if(needed>iSize){
+      alert(`Image trop grande pour cette ressource.\n\nEspace disponible : ${iSize} octets\nRequis : ${needed} octets\n\nUtilise une image plus petite ou de mêmes dimensions que l'icône d'origine (${origW}×${origW}px).`);
+      return;
+    }
+
     let o=origHOff;
     writeU32LE(b,o,40);writeU32LE(b,o+4,origW);writeU32LE(b,o+8,origW*2);
     writeU16LE(b,o+12,1);writeU16LE(b,o+14,32);writeU32LE(b,o+16,0);
@@ -1365,17 +1380,62 @@ $("peAutoAll").addEventListener("click", async () => {
 
     // ── Étape 3 : Scan original ───────────────────────────────────────────────
     btn.textContent="⏳ 3/4 — Scan original…";
-    step("🛡️ Étape 3/4 — Scan de l'original sur VirusTotal…");
-    const origFile=new File([new Blob([peOrigBytes])],origName);
-    const origResult=await doScanReturn(origFile,origName);
-    if(origResult) step(`🛡️ Original : ${origResult.stats.malicious}/${origResult.stats.total} détections`);
+    step("🛡️ Étape 3/4 — Scan de l'original…");
+    let origResult=null;
+    try{
+      step(`📏 Taille : ${(peOrigBytes.length/1024/1024).toFixed(2)} Mo`);
+      const origHash=await sha256File(new File([new Blob([peOrigBytes])],origName));
+      step(`🔑 Hash : ${origHash.substring(0,20)}…`);
+      const chk=await fetch(`/api/check-hash?hash=${origHash}&filename=${encodeURIComponent(origName)}&size=${peOrigBytes.length}`);
+      if(!chk.ok){step(`❌ check-hash erreur HTTP ${chk.status}`);}
+      else{
+        const d=await chk.json();
+        if(d.found){step("✅ Trouvé dans VT");origResult=d;renderResult(d);}
+        else if(peOrigBytes.length>MAX_UPLOAD_SIZE){
+          step(`⚠️ Inconnu de VT + ${(peOrigBytes.length/1024/1024).toFixed(1)}Mo > 4Mo — upload impossible`);
+          step("💡 Soumets-le manuellement sur virustotal.com");
+        } else {
+          step("📤 Inconnu — upload en cours…");
+          const f2=new FormData();f2.append("file",new File([new Blob([peOrigBytes])],origName),origName);
+          const r2=await fetch("/api/scan",{method:"POST",body:f2});
+          if(!r2.ok){const e2=await r2.json().catch(()=>({}));step(`❌ Upload erreur : ${e2.error||r2.status}`);}
+          else{
+            let d2=await r2.json();
+            if(!d2.done){step("⏳ Analyse en cours…");d2=await pollStatus({id:d2.analysisId,hash:d2.hash,filename:d2.filename,size:d2.size});}
+            origResult=d2;renderResult(d2);step(`✅ Original : ${d2.stats.malicious}/${d2.stats.total} détections`);
+          }
+        }
+      }
+    }catch(e){step(`❌ Erreur : ${e.message}`);}
 
     // ── Étape 4 : Scan modifié ────────────────────────────────────────────────
     btn.textContent="⏳ 4/4 — Scan modifié…";
-    step("🛡️ Étape 4/4 — Scan du fichier modifié sur VirusTotal…");
-    const modFile=new File([new Blob([peBytes])],modName);
-    const modResult=await doScanReturn(modFile,modName);
-    if(modResult) step(`🛡️ Modifié : ${modResult.stats.malicious}/${modResult.stats.total} détections`);
+    step("🛡️ Étape 4/4 — Scan du fichier modifié…");
+    let modResult=null;
+    try{
+      const modHash=await sha256File(new File([new Blob([peBytes])],modName));
+      step(`🔑 Hash modifié : ${modHash.substring(0,20)}…`);
+      const chk2=await fetch(`/api/check-hash?hash=${modHash}&filename=${encodeURIComponent(modName)}&size=${peBytes.length}`);
+      if(!chk2.ok){step(`❌ check-hash erreur HTTP ${chk2.status}`);}
+      else{
+        const d3=await chk2.json();
+        if(d3.found){step("✅ Déjà connu de VT");modResult=d3;renderResult(d3);}
+        else if(peBytes.length>MAX_UPLOAD_SIZE){
+          step(`⚠️ ${(peBytes.length/1024/1024).toFixed(1)}Mo > 4Mo — upload impossible`);
+        } else {
+          step("📤 Upload du fichier modifié…");
+          const f3=new FormData();f3.append("file",new File([new Blob([peBytes])],modName),modName);
+          const r3=await fetch("/api/scan",{method:"POST",body:f3});
+          if(!r3.ok){const e3=await r3.json().catch(()=>({}));step(`❌ Upload erreur : ${e3.error||r3.status}`);}
+          else{
+            let d4=await r3.json();
+            if(!d4.done){step("⏳ Analyse en cours…");d4=await pollStatus({id:d4.analysisId,hash:d4.hash,filename:d4.filename,size:d4.size});}
+            modResult=d4;renderResult(d4);step(`✅ Modifié : ${d4.stats.malicious}/${d4.stats.total} détections`);
+          }
+        }
+      }
+    }catch(e){step(`❌ Erreur : ${e.message}`);}
+    $("statusBar").textContent="Prêt";
 
     // ── Résultat comparatif ───────────────────────────────────────────────────
     if(origResult&&modResult){
@@ -1561,20 +1621,26 @@ $("hxImgMinorApply").addEventListener("click",()=>{if(!hexPeOffsets)return;hxWri
 $("hxDllFlagsApply").addEventListener("click",()=>{if(!hexPeOffsets)return;hxWriteU16(hexPeOffsets.dllFlags,parseInt($("hxDllFlags").value,16)||0);log(`DLL Flags → 0x${$("hxDllFlags").value}`);});
 $("hxRecalcChecksum").addEventListener("click",hxRecalcChecksum);
 
+let hexPage=0;
+const HEX_PAGE_ROWS=512, HEX_COLS=16;
+
 function renderHex(){
-  const b=hexBytes,COLS=16,MAX=512;
-  const rows=Math.min(Math.ceil(b.length/COLS),MAX);
+  const b=hexBytes,COLS=HEX_COLS,pageBytes=HEX_PAGE_ROWS*COLS;
+  const totalPages=Math.ceil(b.length/pageBytes);
+  if(hexPage>=totalPages) hexPage=Math.max(0,totalPages-1);
+  const startByte=hexPage*pageBytes;
+  const endByte=Math.min(startByte+pageBytes,b.length);
   let html="";
-  for(let r=0;r<rows;r++){
-    const addr=(r*COLS).toString(16).toUpperCase().padStart(8,"0");
+  for(let off=startByte;off<endByte;off+=COLS){
+    const addr=off.toString(16).toUpperCase().padStart(8,"0");
     let hex="",asc="";
     for(let c=0;c<COLS;c++){
-      const off=r*COLS+c;
-      if(off>=b.length){hex+="<td></td>";continue;}
-      const v=b[off];
-      const sel=off===hexSelectedOffset?" selected":"";
-      const mod=(hexOrigBytes&&v!==hexOrigBytes[off])?" modified":"";
-      hex+=`<td class="hex-cell${sel}${mod}" data-off="${off}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
+      const o=off+c;
+      if(o>=b.length){hex+="<td></td>";continue;}
+      const v=b[o];
+      const sel=o===hexSelectedOffset?" selected":"";
+      const mod=(hexOrigBytes&&v!==hexOrigBytes[o])?" modified":"";
+      hex+=`<td class="hex-cell${sel}${mod}" data-off="${o}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
       asc+=(v>=32&&v<127)?String.fromCharCode(v):".";
     }
     html+=`<tr><td class="hex-addr">${addr}</td>${hex}<td class="hex-ascii">${asc}</td></tr>`;
@@ -1589,6 +1655,19 @@ function renderHex(){
       cell.classList.add("selected");
     });
   });
+  // Barre de navigation de page
+  const nav=$("hexPageNav");
+  if(nav){
+    if(totalPages>1){
+      nav.classList.remove("hidden");
+      nav.innerHTML=`
+        <button id="hexPrevPage" ${hexPage===0?'disabled':''}>◀ Précédent</button>
+        <span style="font-size:12px;">Page ${hexPage+1}/${totalPages} — offset 0x${startByte.toString(16).toUpperCase()}</span>
+        <button id="hexNextPage" ${hexPage>=totalPages-1?'disabled':''}>Suivant ▶</button>`;
+      $("hexPrevPage").onclick=()=>{if(hexPage>0){hexPage--;renderHex();}};
+      $("hexNextPage").onclick=()=>{if(hexPage<totalPages-1){hexPage++;renderHex();}};
+    } else nav.classList.add("hidden");
+  }
 }
 
 $("hexApplyBtn").addEventListener("click",()=>{
