@@ -283,6 +283,9 @@
         <div style="font-size:11px;color:#888;">Rich Header = bloc entre l'en-tête DOS et la signature PE, présent dans les fichiers compilés avec MSVC.</div>
       </fieldset>
 
+      <button class="primary" id="peAutoAll" style="margin-bottom:10px;background:linear-gradient(180deg,#fff3e0,#ffb74d);font-size:15px;font-weight:700;">🚀 Auto : Modifier + Sauvegarder + Scanner + Comparer</button>
+      <div id="peAutoProgress" class="hidden" style="background:#fff;border:1px solid #ffb74d;border-radius:4px;padding:10px;margin-bottom:10px;font-size:12px;font-family:monospace;"></div>
+
       <button class="primary" id="peApplyAll" style="margin-bottom:10px;background:linear-gradient(180deg,#fff8e1,#ffe082);">⚡ Appliquer toutes les modifications</button>
 
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -1234,7 +1237,176 @@ $("peRandomIcons").addEventListener("click",async()=>{
   alert(msg);
 });
 
-// Toggle sections MAJUSCULES / minuscules
+// ─── AUTO : TOUT FAIRE ───────────────────────────────────────────────────────
+$("peAutoAll").addEventListener("click", async () => {
+  if(!peBytes||!peOrigBytes){alert("Charge d'abord un fichier PE.");return;}
+  const btn=$("peAutoAll");
+  const prog=$("peAutoProgress");
+  btn.disabled=true;
+  prog.classList.remove("hidden");
+  prog.innerHTML="";
+
+  function step(msg){
+    const d=document.createElement("div");
+    d.textContent=msg;
+    prog.appendChild(d);
+    prog.scrollTop=prog.scrollHeight;
+    log(msg);
+  }
+
+  try{
+    const b=peBytes;
+    const mods=[];
+
+    // ── Étape 1 : Modifications ──────────────────────────────────────────────
+    btn.textContent="⏳ 1/4 — Modifications…";
+    step("🔧 Étape 1/4 — Application des modifications…");
+
+    // Champs UI actuels
+    applyPEChanges();
+
+    // Timestamp réaliste
+    const tsMin=new Date('2018-01-01').getTime()/1000;
+    const tsMax=new Date('2024-06-01').getTime()/1000;
+    const newTs=Math.floor(randInt(tsMin,tsMax));
+    writeU32LE(b,peOffsets.timestamp,newTs);
+    mods.push(`✅ Timestamp → ${new Date(newTs*1000).toLocaleDateString('fr-FR')}`);
+
+    // Linker
+    const lv=randFrom(LV_OPTIONS);
+    b[peOffsets.linkMajor]=lv[0];b[peOffsets.linkMinor]=lv[1];
+    mods.push(`✅ Linker → ${lv[0]}.${lv[1]}`);
+
+    // OS Version
+    const osv=randFrom(OS_OPTIONS);
+    writeU16LE(b,peOffsets.osMajor,osv[0]);writeU16LE(b,peOffsets.osMinor,osv[1]);
+    mods.push(`✅ OS Version → ${osv[0]}.${osv[1]}`);
+
+    // Image Version
+    const imgMaj=randInt(0,6),imgMin=randInt(0,2);
+    writeU16LE(b,peOffsets.imgMajor,imgMaj);writeU16LE(b,peOffsets.imgMinor,imgMin);
+    mods.push(`✅ Image Version → ${imgMaj}.${imgMin}`);
+
+    // DLL Flags
+    const newFlags=randFrom(DLL_OPTIONS);
+    writeU16LE(b,peOffsets.dllFlags,newFlags);
+    mods.push(`✅ DLL Flags → 0x${newFlags.toString(16).toUpperCase()}`);
+
+    // Sections MAJUSCULES
+    const numSec=readU16LE(b,peOffsets.numSections);
+    const optSize=readU16LE(b,peOffsets.pe+20);
+    let sOff=peOffsets.pe+24+optSize,toggled=0;
+    for(let i=0;i<numSec;i++){
+      for(let j=0;j<8;j++){const c=b[sOff+j];if(c>=97&&c<=122){b[sOff+j]=c-32;toggled++;}}
+      sOff+=40;
+    }
+    if(toggled>0) mods.push(`✅ Sections → MAJUSCULES (${toggled} car.)`);
+
+    // Rich Header
+    const richEnd=peOffsets.pe;
+    if(richEnd>0x48){b.fill(0,0x40,richEnd);mods.push(`✅ Rich Header supprimé`);}
+
+    // Strings padding
+    let padCount=0;
+    for(let i=peOffsets.pe+256;i<b.length-8&&padCount<12;i++){
+      if(b[i]===0&&b[i+1]===0&&b[i+2]===0&&b[i+3]===0&&b[i+4]===0){b[i+2]=randInt(1,15);padCount++;i+=16;}
+    }
+    if(padCount>0) mods.push(`✅ Strings padding → ${padCount} zones`);
+
+    // VersionInfo
+    try{const r=smVersionInfoFn(b);if(r) mods.push(`✅ ${r}`);}catch(e){}
+
+    // Manifest
+    try{const r=smManifestFn(b);if(r) mods.push(`✅ Manifest → ${r}`);}catch(e){}
+
+    // Icônes
+    if(peResources&&peResources.icons){
+      try{
+        const iOff=rvaToOff(peResources.icons.rva,peSectionsList);
+        if(iOff>=0){
+          const iSize=peResources.icons.size;
+          let hStart=-1;
+          for(let i=iOff;i<iOff+Math.min(iSize,200)&&i<b.length-4;i++){
+            if(b[i]===0x28&&b[i+1]===0&&b[i+2]===0&&b[i+3]===0){hStart=i;break;}
+          }
+          if(hStart>=0){
+            const bpp=readU16LE(b,hStart+14);
+            const palBytes=(bpp<=8?(1<<bpp):0)*4;
+            const pixStart=hStart+40+palBytes;
+            for(let j=0;j<4;j++){const p=pixStart+j*8;if(p<b.length&&p<iOff+iSize) b[p]^=randInt(1,15);}
+            mods.push(`✅ Icône modifiée (${bpp}bpp)`);
+          }
+        }
+      }catch(e){}
+    }
+
+    // Checksum final
+    writeU32LE(b,peOffsets.checksum,0);
+    let sum=0,carry=0;
+    for(let i=0;i<b.length-1;i+=2){sum+=((b[i+1]<<8)|b[i])+carry;carry=sum>>>16;sum&=0xffff;}
+    if(b.length%2!==0){sum+=b[b.length-1]+carry;carry=sum>>>16;sum&=0xffff;}
+    sum=(sum+carry)&0xffff;
+    const cs=(sum+b.length)>>>0;
+    writeU32LE(b,peOffsets.checksum,cs);
+    mods.push(`✅ Checksum → 0x${cs.toString(16).toUpperCase().padStart(8,'0')}`);
+
+    mods.forEach(m=>step(m));
+    step(`📊 ${mods.length} modification(s) appliquée(s)`);
+
+    // ── Étape 2 : Sauvegarde ─────────────────────────────────────────────────
+    btn.textContent="⏳ 2/4 — Sauvegarde…";
+    step("💾 Étape 2/4 — Sauvegarde du fichier modifié…");
+    const modName=peFileNameStr.replace(/(\.\w+)$/,"_modifié$1")||"modifié.exe";
+    const origName=peFileNameStr||"original.exe";
+    await addToHistory(modName,peBytes,peOrigBytes,'pe');
+    const blob=new Blob([peBytes],{type:"application/octet-stream"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=modName;a.click();
+    step(`💾 Fichier sauvegardé : ${modName}`);
+
+    // ── Étape 3 : Scan original ───────────────────────────────────────────────
+    btn.textContent="⏳ 3/4 — Scan original…";
+    step("🛡️ Étape 3/4 — Scan de l'original sur VirusTotal…");
+    const origFile=new File([new Blob([peOrigBytes])],origName);
+    const origResult=await doScanReturn(origFile,origName);
+    if(origResult) step(`🛡️ Original : ${origResult.stats.malicious}/${origResult.stats.total} détections`);
+
+    // ── Étape 4 : Scan modifié ────────────────────────────────────────────────
+    btn.textContent="⏳ 4/4 — Scan modifié…";
+    step("🛡️ Étape 4/4 — Scan du fichier modifié sur VirusTotal…");
+    const modFile=new File([new Blob([peBytes])],modName);
+    const modResult=await doScanReturn(modFile,modName);
+    if(modResult) step(`🛡️ Modifié : ${modResult.stats.malicious}/${modResult.stats.total} détections`);
+
+    // ── Résultat comparatif ───────────────────────────────────────────────────
+    if(origResult&&modResult){
+      $('vtCompareBody').innerHTML=[
+        {label:'Original',r:origResult},
+        {label:'Modifié',r:modResult}
+      ].map(({label,r})=>{
+        const bad=r.stats.malicious+r.stats.suspicious;
+        const tot=r.stats.total;
+        return `<tr>
+          <td><b>${label}</b></td>
+          <td class="hash-short" title="${r.hash}">${r.hash.substring(0,12)}…</td>
+          <td><span class="${bad>0?'malicious':'clean'}">${r.stats.malicious}/${tot}</span></td>
+          <td>${r.stats.suspicious} suspect / ${r.stats.harmless+r.stats.undetected} indemne</td>
+          <td><span class="link" onclick="window.open('${r.permalink}','_blank')">VT ↗</span></td>
+        </tr>`;
+      }).join('');
+      $('vtCompareBox').classList.remove('hidden');
+      renderDiff(history[history.length-1]);
+      switchTab('diff');
+      step("✅ Terminé — tableau comparatif affiché");
+    }
+
+  }catch(e){
+    step(`❌ Erreur : ${e.message}`);
+    alert("Erreur : "+e.message);
+  }finally{
+    btn.disabled=false;
+    btn.textContent="🚀 Auto : Modifier + Sauvegarder + Scanner + Comparer";
+  }
+});
 $("peToggleSections").addEventListener("click",()=>{
   if(!peOffsets.pe)return;
   const b=peBytes;
