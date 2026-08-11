@@ -674,53 +674,64 @@ async function sha256Bytes(bytes) {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
+// Convertit un Uint8Array en base64 (par blocs pour éviter les limites d'arguments)
+function bytesToBase64(bytes){
+  let binary='';
+  const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk){
+    binary+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk));
+  }
+  return btoa(binary);
+}
+
+// Scanne un Uint8Array : vérifie le hash, upload en base64 si inconnu. Robuste iOS.
+async function scanBytes(bytes, name){
+  const hash = await sha256Bytes(bytes);
+  try{
+    const chk = await fetch(`/api/check-hash?hash=${hash}&filename=${encodeURIComponent(name)}&size=${bytes.length}`);
+    if(chk.ok){
+      const d = await chk.json();
+      if(d.found) return d;
+    }
+  }catch(e){ /* on tente l'upload quand même */ }
+
+  if(bytes.length > MAX_UPLOAD_SIZE){
+    throw new Error(`Fichier ${(bytes.length/1024/1024).toFixed(1)}Mo inconnu de VT et > 4Mo (limite serveur). Soumets-le sur virustotal.com`);
+  }
+
+  const fileBase64 = bytesToBase64(bytes);
+  const res = await fetch("/api/scan",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ fileBase64, filename: name })
+  });
+  if(!res.ok){
+    const e = await res.json().catch(()=>({}));
+    throw new Error(e.error || `Erreur serveur ${res.status}`);
+  }
+  let data = await res.json();
+  if(!data.done){
+    data = await pollStatus({id:data.analysisId,hash:data.hash,filename:data.filename,size:data.size});
+  }
+  return data;
+}
+
 async function doScanReturn(fileObj, label, silent=false){
   $("scanBtn").disabled=true;
-  $("statusBar").textContent="Calcul du hash…";
+  $("statusBar").textContent="Analyse…";
   startTimer();
-  log(`Calcul SHA-256 de "${label}"…`);
+  log(`Analyse de "${label}"…`);
 
   try{
-    // Lire les bytes UNE seule fois dans un buffer stable
     const arrBuf = await fileObj.arrayBuffer();
     const bytes = new Uint8Array(arrBuf);
-    const hash = await sha256Bytes(bytes);
-    log(`SHA-256 : ${hash.substring(0,16)}…`);
-
-    $("statusBar").textContent="Vérification dans VT…";
-    const checkRes = await fetch(`/api/check-hash?hash=${hash}&filename=${encodeURIComponent(label)}&size=${bytes.length}`);
-    if(checkRes.ok){
-      const checkData = await checkRes.json();
-      if(checkData.found){
-        log("✅ Fichier déjà connu de VirusTotal — résultat récupéré sans upload.");
-        renderResult(checkData);
-        $("statusBar").textContent="Prêt";
-        return checkData;
-      }
-    }
-
-    if(bytes.length > MAX_UPLOAD_SIZE){
-      const msg=`Fichier inconnu de VT et trop grand (${(bytes.length/1024/1024).toFixed(1)} Mo > 4 Mo).`;
-      log(`⚠️ ${msg}`);
-      $("statusBar").textContent="Fichier trop grand";
-      if(!silent) alert(msg+"\n\nTu peux l'uploader manuellement sur :\nhttps://www.virustotal.com/gui/home/upload");
-      return null;
-    }
-
-    $("statusBar").textContent="Envoi en cours…";
-    log(`Fichier inconnu — envoi à VirusTotal (${(bytes.length/1024/1024).toFixed(2)} Mo)…`);
-    const form=new FormData();
-    form.append("file",new Blob([new Uint8Array(bytes)],{type:"application/octet-stream"}),label);
-    const res=await fetch("/api/scan",{method:"POST",body:form});
-    if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`Erreur ${res.status}`);}
-    let data=await res.json();
-    if(data.done){log("Résultat déjà connu de VirusTotal.");}
-    else{log("Analyse lancée…");data=await pollStatus({id:data.analysisId,hash:data.hash,filename:data.filename,size:data.size});log("Analyse terminée.");}
+    const data = await scanBytes(bytes, label);
+    log(data.cached ? "✅ Déjà connu de VirusTotal." : "✅ Analyse terminée.");
     renderResult(data);
     $("statusBar").textContent="Prêt";
     return data;
   }catch(e){
-    log(`Erreur scan : ${e.message}`);
+    log(`Erreur : ${e.message}`);
     $("statusBar").textContent="Erreur";
     if(!silent) alert("Échec : "+e.message);
     return null;
@@ -1394,60 +1405,18 @@ $("peAutoAll").addEventListener("click", async () => {
     step("🛡️ Étape 3/4 — Scan de l'original…");
     let origResult=null;
     try{
-      step(`📏 Taille : ${(peOrigBytes.length/1024/1024).toFixed(2)} Mo`);
-      const origHash=await sha256Bytes(peOrigBytes);
-      step(`🔑 Hash : ${origHash.substring(0,20)}…`);
-      const chk=await fetch(`/api/check-hash?hash=${origHash}&filename=${encodeURIComponent(origName)}&size=${peOrigBytes.length}`);
-      if(!chk.ok){step(`❌ check-hash erreur HTTP ${chk.status}`);}
-      else{
-        const d=await chk.json();
-        if(d.found){step("✅ Trouvé dans VT");origResult=d;renderResult(d);}
-        else if(peOrigBytes.length>MAX_UPLOAD_SIZE){
-          step(`⚠️ Inconnu de VT + ${(peOrigBytes.length/1024/1024).toFixed(1)}Mo > 4Mo — upload impossible`);
-          step("💡 Soumets-le manuellement sur virustotal.com");
-        } else {
-          step("📤 Inconnu — upload en cours…");
-          const f2=new FormData();
-          f2.append("file",new Blob([new Uint8Array(peOrigBytes)],{type:"application/octet-stream"}),origName);
-          const r2=await fetch("/api/scan",{method:"POST",body:f2});
-          if(!r2.ok){const e2=await r2.json().catch(()=>({}));step(`❌ Upload erreur : ${e2.error||r2.status}`);}
-          else{
-            let d2=await r2.json();
-            if(!d2.done){step("⏳ Analyse en cours…");d2=await pollStatus({id:d2.analysisId,hash:d2.hash,filename:d2.filename,size:d2.size});}
-            origResult=d2;renderResult(d2);step(`✅ Original : ${d2.stats.malicious}/${d2.stats.total} détections`);
-          }
-        }
-      }
-    }catch(e){step(`❌ Erreur : ${e.message}`);}
+      origResult=await scanBytes(peOrigBytes, origName);
+      step(`✅ Original : ${origResult.stats.malicious}/${origResult.stats.total} détections`);
+    }catch(e){step(`⚠️ Original : ${e.message}`);}
 
     // ── Étape 4 : Scan modifié ────────────────────────────────────────────────
     btn.textContent="⏳ 4/4 — Scan modifié…";
     step("🛡️ Étape 4/4 — Scan du fichier modifié…");
     let modResult=null;
     try{
-      const modHash=await sha256Bytes(peBytes);
-      step(`🔑 Hash modifié : ${modHash.substring(0,20)}…`);
-      const chk2=await fetch(`/api/check-hash?hash=${modHash}&filename=${encodeURIComponent(modName)}&size=${peBytes.length}`);
-      if(!chk2.ok){step(`❌ check-hash erreur HTTP ${chk2.status}`);}
-      else{
-        const d3=await chk2.json();
-        if(d3.found){step("✅ Déjà connu de VT");modResult=d3;renderResult(d3);}
-        else if(peBytes.length>MAX_UPLOAD_SIZE){
-          step(`⚠️ ${(peBytes.length/1024/1024).toFixed(1)}Mo > 4Mo — upload impossible`);
-        } else {
-          step("📤 Upload du fichier modifié…");
-          const f3=new FormData();
-          f3.append("file",new Blob([new Uint8Array(peBytes)],{type:"application/octet-stream"}),modName);
-          const r3=await fetch("/api/scan",{method:"POST",body:f3});
-          if(!r3.ok){const e3=await r3.json().catch(()=>({}));step(`❌ Upload erreur : ${e3.error||r3.status}`);}
-          else{
-            let d4=await r3.json();
-            if(!d4.done){step("⏳ Analyse en cours…");d4=await pollStatus({id:d4.analysisId,hash:d4.hash,filename:d4.filename,size:d4.size});}
-            modResult=d4;renderResult(d4);step(`✅ Modifié : ${d4.stats.malicious}/${d4.stats.total} détections`);
-          }
-        }
-      }
-    }catch(e){step(`❌ Erreur : ${e.message}`);}
+      modResult=await scanBytes(peBytes, modName);
+      step(`✅ Modifié : ${modResult.stats.malicious}/${modResult.stats.total} détections`);
+    }catch(e){step(`⚠️ Modifié : ${e.message}`);}
     $("statusBar").textContent="Prêt";
 
     // ── Résultat comparatif ───────────────────────────────────────────────────
