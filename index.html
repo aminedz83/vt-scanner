@@ -1303,6 +1303,9 @@ $("peAutoAll").addEventListener("click", async () => {
     const b=peBytes;
     const mods=[];
 
+    // Warm-up : initialise crypto + connexion réseau (évite le Load failed du 1er scan iOS)
+    try{ await sha256Bytes(new Uint8Array([0])); await fetch('/api/health').catch(()=>{}); }catch(e){}
+
     // ── Étape 1 : Modifications ──────────────────────────────────────────────
     btn.textContent="⏳ 1/4 — Modifications…";
     step("🔧 Étape 1/4 — Application des modifications…");
@@ -1413,9 +1416,17 @@ $("peAutoAll").addEventListener("click", async () => {
     step("🛡️ Étape 3/4 — Scan de l'original…");
     let origResult=null;
     try{
-      const origCopy = new Uint8Array(peOrigBytes); // copie stable
-      origResult=await scanBytes(origCopy, origName);
-      step(`✅ Original : ${origResult.stats.malicious}/${origResult.stats.total} détections`);
+      const origFile = new File([new Uint8Array(peOrigBytes)], origName, {type:"application/octet-stream"});
+      origResult=await doScanReturn(origFile, origName, true);
+      // Retry automatique si le 1er scan échoue (problème d'init iOS)
+      if(!origResult){
+        step("↻ Nouvelle tentative…");
+        await new Promise(r=>setTimeout(r,600));
+        const retryFile = new File([new Uint8Array(peOrigBytes)], origName, {type:"application/octet-stream"});
+        origResult=await doScanReturn(retryFile, origName, true);
+      }
+      if(origResult) step(`✅ Original : ${origResult.stats.malicious}/${origResult.stats.total} détections`);
+      else step(`⚠️ Original : échec après 2 tentatives`);
     }catch(e){step(`⚠️ Original : ${e.message}`);}
 
     // ── Étape 4 : Scan modifié ────────────────────────────────────────────────
@@ -1423,9 +1434,16 @@ $("peAutoAll").addEventListener("click", async () => {
     step("🛡️ Étape 4/4 — Scan du fichier modifié…");
     let modResult=null;
     try{
-      const modCopy = new Uint8Array(peBytes); // copie stable
-      modResult=await scanBytes(modCopy, modName);
-      step(`✅ Modifié : ${modResult.stats.malicious}/${modResult.stats.total} détections`);
+      const modFile = new File([new Uint8Array(peBytes)], modName, {type:"application/octet-stream"});
+      modResult=await doScanReturn(modFile, modName, true);
+      if(!modResult){
+        step("↻ Nouvelle tentative…");
+        await new Promise(r=>setTimeout(r,600));
+        const retryFile = new File([new Uint8Array(peBytes)], modName, {type:"application/octet-stream"});
+        modResult=await doScanReturn(retryFile, modName, true);
+      }
+      if(modResult) step(`✅ Modifié : ${modResult.stats.malicious}/${modResult.stats.total} détections`);
+      else step(`⚠️ Modifié : échec après 2 tentatives`);
     }catch(e){step(`⚠️ Modifié : ${e.message}`);}
     $("statusBar").textContent="Prêt";
 
