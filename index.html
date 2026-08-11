@@ -674,32 +674,40 @@ async function sha256Bytes(bytes) {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
-// Convertit un Uint8Array en base64 (par blocs pour éviter les limites d'arguments)
+// Convertit un Uint8Array en base64 — méthode robuste iOS (petits blocs)
 function bytesToBase64(bytes){
+  const copy = new Uint8Array(bytes); // buffer stable
   let binary='';
-  const chunk=0x8000;
-  for(let i=0;i<bytes.length;i+=chunk){
-    binary+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk));
+  const chunk=1024; // petits blocs pour éviter les limites d'appel sur iOS
+  for(let i=0;i<copy.length;i+=chunk){
+    const slice=copy.subarray(i,Math.min(i+chunk,copy.length));
+    binary+=String.fromCharCode.apply(null,slice);
   }
   return btoa(binary);
 }
 
 // Scanne un Uint8Array : vérifie le hash, upload en base64 si inconnu. Robuste iOS.
 async function scanBytes(bytes, name){
-  const hash = await sha256Bytes(bytes);
+  const stable = new Uint8Array(bytes); // copie stable
+  const hash = await sha256Bytes(stable);
+
+  // 1. Vérifier si connu de VT (GET) — pas d'upload nécessaire si trouvé
   try{
-    const chk = await fetch(`/api/check-hash?hash=${hash}&filename=${encodeURIComponent(name)}&size=${bytes.length}`);
+    const chk = await fetch(`/api/check-hash?hash=${hash}&filename=${encodeURIComponent(name)}&size=${stable.length}`);
     if(chk.ok){
       const d = await chk.json();
       if(d.found) return d;
     }
-  }catch(e){ /* on tente l'upload quand même */ }
+  }catch(e){ /* on tente l'upload */ }
 
-  if(bytes.length > MAX_UPLOAD_SIZE){
-    throw new Error(`Fichier ${(bytes.length/1024/1024).toFixed(1)}Mo inconnu de VT et > 4Mo (limite serveur). Soumets-le sur virustotal.com`);
+  // 2. Vérifier la taille : base64 gonfle de ~33%, limite Vercel ~4.5 Mo
+  const base64Limit = 3 * 1024 * 1024; // 3 Mo de données brutes = ~4 Mo en base64
+  if(stable.length > base64Limit){
+    throw new Error(`Fichier ${(stable.length/1024/1024).toFixed(1)}Mo inconnu de VT — trop grand pour l'upload auto (max 3Mo). Soumets-le sur virustotal.com`);
   }
 
-  const fileBase64 = bytesToBase64(bytes);
+  // 3. Upload en base64 (POST JSON — fiable iOS)
+  const fileBase64 = bytesToBase64(stable);
   const res = await fetch("/api/scan",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
@@ -707,7 +715,7 @@ async function scanBytes(bytes, name){
   });
   if(!res.ok){
     const e = await res.json().catch(()=>({}));
-    throw new Error(e.error || `Erreur serveur ${res.status}`);
+    throw new Error(e.error || `Serveur ${res.status}`);
   }
   let data = await res.json();
   if(!data.done){
@@ -1405,7 +1413,8 @@ $("peAutoAll").addEventListener("click", async () => {
     step("🛡️ Étape 3/4 — Scan de l'original…");
     let origResult=null;
     try{
-      origResult=await scanBytes(peOrigBytes, origName);
+      const origCopy = new Uint8Array(peOrigBytes); // copie stable
+      origResult=await scanBytes(origCopy, origName);
       step(`✅ Original : ${origResult.stats.malicious}/${origResult.stats.total} détections`);
     }catch(e){step(`⚠️ Original : ${e.message}`);}
 
@@ -1414,7 +1423,8 @@ $("peAutoAll").addEventListener("click", async () => {
     step("🛡️ Étape 4/4 — Scan du fichier modifié…");
     let modResult=null;
     try{
-      modResult=await scanBytes(peBytes, modName);
+      const modCopy = new Uint8Array(peBytes); // copie stable
+      modResult=await scanBytes(modCopy, modName);
       step(`✅ Modifié : ${modResult.stats.malicious}/${modResult.stats.total} détections`);
     }catch(e){step(`⚠️ Modifié : ${e.message}`);}
     $("statusBar").textContent="Prêt";
