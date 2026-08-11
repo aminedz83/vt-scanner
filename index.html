@@ -1764,8 +1764,8 @@ function renderHex(){
         <button id="hexPrevPage" ${hexPage===0?'disabled':''}>◀ Précédent</button>
         <span style="font-size:12px;">Page ${hexPage+1}/${totalPages} — offset 0x${startByte.toString(16).toUpperCase()}</span>
         <button id="hexNextPage" ${hexPage>=totalPages-1?'disabled':''}>Suivant ▶</button>`;
-      $("hexPrevPage").onclick=()=>{if(hexPage>0){hexPage--;renderHex();}};
-      $("hexNextPage").onclick=()=>{if(hexPage<totalPages-1){hexPage++;renderHex();}};
+      $("hexPrevPage").onclick=()=>{if(hexPage>0){hexPage--;renderHex();if(hexSelectMode)renderBlockButtons();}};
+      $("hexNextPage").onclick=()=>{if(hexPage<totalPages-1){hexPage++;renderHex();if(hexSelectMode)renderBlockButtons();}};
     } else nav.classList.add("hidden");
   }
 }
@@ -1900,11 +1900,20 @@ function renderBlockButtons(){
   const container=$("hexBlockButtons");
   if(!hexBytes){container.innerHTML="";return;}
   const totalBlocks=Math.ceil(hexBytes.length/hexBlockSize);
-  const shown=Math.min(totalBlocks,32);
+  const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
+  const totalPages=Math.ceil(hexBytes.length/pageBytes);
+  // Blocs présents sur la page courante
+  const pageStart=hexPage*pageBytes;
+  const pageEnd=Math.min(pageStart+pageBytes,hexBytes.length);
+  const firstBlock=Math.floor(pageStart/hexBlockSize);
+  const lastBlock=Math.ceil(pageEnd/hexBlockSize)-1;
+
   let html="";
-  for(let i=0;i<shown;i++){
+  if(totalPages>1){
+    html+=`<span style="font-size:10px;color:#888;align-self:center;margin-right:4px;">Blocs page ${hexPage+1} :</span>`;
+  }
+  for(let i=firstBlock;i<=lastBlock;i++){
     const blockStart=i*hexBlockSize;
-    // Un bloc est actif si toutes ses lignes sont sélectionnées
     const linesInBlock=Math.ceil(hexBlockSize/HEX_COLS);
     let allSel=true;
     for(let l=0;l<linesInBlock;l++){
@@ -1913,14 +1922,12 @@ function renderBlockButtons(){
     }
     html+=`<button class="hex-block-btn${allSel?' active':''}" data-block="${i}">B${i+1}</button>`;
   }
-  if(totalBlocks>32) html+=`<span style="font-size:11px;color:#888;align-self:center;">+${totalBlocks-32}…</span>`;
   container.innerHTML=html;
   container.querySelectorAll(".hex-block-btn").forEach(btn=>{
     btn.addEventListener("click",()=>{
       const bi=parseInt(btn.dataset.block);
       const blockStart=bi*hexBlockSize;
       const linesInBlock=Math.ceil(hexBlockSize/HEX_COLS);
-      // Toggle : si déjà tout sélectionné, on désélectionne
       let allSel=true;
       for(let l=0;l<linesInBlock;l++){
         const rowOff=blockStart+l*HEX_COLS;
@@ -1933,12 +1940,9 @@ function renderBlockButtons(){
           else hexSelectedRows.add(rowOff);
         }
       }
-      // Aller directement au bloc : bonne page + scroll
-      const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
       const targetPage=Math.floor(blockStart/pageBytes);
       if(targetPage!==hexPage){hexPage=targetPage;}
       updateHexSelInfo();renderHex();renderBlockButtons();
-      // Scroll vers la ligne du bloc dans la vue hex
       scrollHexToOffset(blockStart);
     });
   });
