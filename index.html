@@ -50,6 +50,12 @@
   .hex-cell.selected.modified{background:#4a90d9;color:#fff;}
   .hex-cell.pe-field-hl{background:#d4f0d4;outline:1px solid #5a9b5a;}
   .hex-cell.selected.pe-field-hl{background:#4a90d9;color:#fff;}
+  .hex-row-sel{background:#dbe9ff !important;}
+  .hex-linecheck{margin-right:4px;vertical-align:middle;cursor:pointer;}
+  .hex-addr.clickable{cursor:pointer;}
+  .hex-block-btn{padding:5px 12px;background:linear-gradient(180deg,#fdfdfd,#e8e8e8);border:1px solid var(--win-border);color:#444;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;font-weight:600;transition:all .1s;min-width:38px;}
+  .hex-block-btn:hover{background:linear-gradient(180deg,#e8f0ff,#cfe0f7);border-color:var(--panel-blue);color:var(--panel-blue);}
+  .hex-block-btn.active{background:linear-gradient(180deg,#cfe0f7,#a5c8f0);border-color:var(--panel-blue);color:var(--panel-blue);}
   .hex-ascii{color:#555;border-left:1px solid #ddd;letter-spacing:1px;}
   .hex-edit-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;}
   .hex-edit-row label{font-size:12px;color:#555;}
@@ -427,6 +433,25 @@
 
       <fieldset>
         <legend>Vue hexadécimale</legend>
+        <div id="hexSelPanel" style="margin-bottom:8px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
+            <label style="font-weight:600;color:#555;font-size:11px;">SÉLECTION :</label>
+            <button id="hexSelToggle" style="font-size:11px;padding:4px 8px;">☑️ Activer les cases</button>
+            <label style="font-size:11px;color:#555;">Taille bloc :</label>
+            <select id="hexBlockSize" style="font-size:11px;padding:3px 6px;border:1px solid var(--win-border);border-radius:3px;" disabled>
+              <option value="16">16 octets</option>
+              <option value="32">32 octets</option>
+              <option value="64" selected>64 octets</option>
+              <option value="128">128 octets</option>
+              <option value="256">256 octets</option>
+              <option value="512">512 octets</option>
+            </select>
+            <button id="hexSelAll" style="font-size:11px;padding:4px 8px;" disabled>Tout sélectionner</button>
+            <button id="hexSelClear" style="font-size:11px;padding:4px 8px;" disabled>Effacer</button>
+          </div>
+          <div id="hexBlockButtons" class="hidden" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;"></div>
+          <span id="hexSelInfo" style="font-family:monospace;color:#0033cc;font-size:11px;"></span>
+        </div>
         <div class="hex-wrap"><table class="hex-table" id="hexTable"></table></div>
         <div id="hexPageNav" class="hidden" style="display:flex;gap:10px;align-items:center;justify-content:center;margin-top:8px;"></div>
         <div class="hex-edit-row">
@@ -437,6 +462,56 @@
           <button id="hexApplyBtn">Appliquer</button>
           <button id="hexResetBtn">Réinitialiser</button>
         </div>
+      </fieldset>
+
+      <!-- Stratégies & variantes -->
+      <fieldset id="hexVariantBox" style="border-color:#5a6b9b;background:#f5f7ff;">
+        <legend style="color:#0033cc;">⚗️ Créer des variantes de test</legend>
+        <div style="font-size:11px;color:#555;margin-bottom:8px;">
+          Sélectionne des lignes (active les cases ci-dessus), choisis une stratégie, et crée une copie modifiée. L'original reste intact.
+        </div>
+        <div id="hexSelStats" style="font-size:11px;font-family:monospace;color:#0033cc;margin-bottom:8px;"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;">
+          <div style="flex:1;min-width:180px;">
+            <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Stratégie</label>
+            <select id="hexStrategy" style="width:100%;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;">
+              <optgroup label="── Basique ──">
+                <option value="nop">NOP (0x90) — neutre x86</option>
+                <option value="zero">Zéros (0x00)</option>
+                <option value="ff">0xFF</option>
+                <option value="int3">INT3 (0xCC) — breakpoint</option>
+                <option value="custom">Valeur personnalisée</option>
+              </optgroup>
+              <optgroup label="── Arithmétique ──">
+                <option value="increment">Incrément (+1)</option>
+                <option value="decrement">Décrément (-1)</option>
+                <option value="invert">Inversion bits (NOT)</option>
+                <option value="xor">XOR (clé)</option>
+              </optgroup>
+              <optgroup label="── Génératif ──">
+                <option value="random">Aléatoire</option>
+                <option value="pattern">Motif répétitif</option>
+                <option value="shuffle">Shuffle</option>
+                <option value="mirror">Miroir</option>
+              </optgroup>
+              <optgroup label="── Avancé ──">
+                <option value="entropy">Entropie contrôlée</option>
+              </optgroup>
+            </select>
+            <div id="hexStratDesc" style="font-size:10px;color:#888;margin-top:3px;"></div>
+          </div>
+          <div id="hexCustomWrap" class="hidden">
+            <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Valeur hex</label>
+            <input type="text" id="hexStratValue" placeholder="90 CC DE AD" style="width:130px;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;font-family:monospace;" />
+          </div>
+          <div id="hexXorWrap" class="hidden">
+            <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Clé XOR</label>
+            <input type="text" id="hexXorKey" maxlength="2" placeholder="FF" style="width:55px;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;font-family:monospace;" />
+          </div>
+          <button class="primary" id="hexCreateVariant" style="width:auto;padding:8px 16px;" disabled>⚗️ Créer variante</button>
+        </div>
+        <div id="hexVariantList" style="font-size:11px;font-family:monospace;"></div>
+        <div id="hexDiffView" class="hidden" style="margin-top:10px;"></div>
       </fieldset>
 
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
@@ -1633,6 +1708,9 @@ $("hxRecalcChecksum").addEventListener("click",hxRecalcChecksum);
 
 let hexPage=0;
 const HEX_PAGE_ROWS=512, HEX_COLS=16;
+let hexSelectMode=false;
+let hexSelectedRows=new Set(); // offsets de début de ligne sélectionnés
+let hexVariants=[];
 
 function renderHex(){
   const b=hexBytes,COLS=HEX_COLS,pageBytes=HEX_PAGE_ROWS*COLS;
@@ -1643,6 +1721,7 @@ function renderHex(){
   let html="";
   for(let off=startByte;off<endByte;off+=COLS){
     const addr=off.toString(16).toUpperCase().padStart(8,"0");
+    const rowSel=hexSelectedRows.has(off);
     let hex="",asc="";
     for(let c=0;c<COLS;c++){
       const o=off+c;
@@ -1653,7 +1732,8 @@ function renderHex(){
       hex+=`<td class="hex-cell${sel}${mod}" data-off="${o}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
       asc+=(v>=32&&v<127)?String.fromCharCode(v):".";
     }
-    html+=`<tr><td class="hex-addr">${addr}</td>${hex}<td class="hex-ascii">${asc}</td></tr>`;
+    const check=hexSelectMode?`<input type="checkbox" class="hex-linecheck" data-row="${off}" ${rowSel?'checked':''}>`:'';
+    html+=`<tr class="${rowSel?'hex-row-sel':''}"><td class="hex-addr">${check}${addr}</td>${hex}<td class="hex-ascii">${asc}</td></tr>`;
   }
   $("hexTable").innerHTML=html;
   $("hexTable").querySelectorAll(".hex-cell").forEach(cell=>{
@@ -1665,7 +1745,17 @@ function renderHex(){
       cell.classList.add("selected");
     });
   });
-  // Barre de navigation de page
+  // Cases à cocher de ligne
+  $("hexTable").querySelectorAll(".hex-linecheck").forEach(cb=>{
+    cb.addEventListener("click",e=>{
+      e.stopPropagation();
+      const row=parseInt(cb.dataset.row);
+      if(cb.checked) hexSelectedRows.add(row); else hexSelectedRows.delete(row);
+      updateHexSelInfo();
+      cb.closest("tr").classList.toggle("hex-row-sel",cb.checked);
+      if(typeof renderBlockButtons==="function") renderBlockButtons();
+    });
+  });
   const nav=$("hexPageNav");
   if(nav){
     if(totalPages>1){
@@ -1678,6 +1768,334 @@ function renderHex(){
       $("hexNextPage").onclick=()=>{if(hexPage<totalPages-1){hexPage++;renderHex();}};
     } else nav.classList.add("hidden");
   }
+}
+
+// Offsets réels sélectionnés (à partir des lignes cochées)
+function hexSelectedOffsets(){
+  const offs=[];
+  for(const row of hexSelectedRows){
+    for(let c=0;c<HEX_COLS&&row+c<hexBytes.length;c++) offs.push(row+c);
+  }
+  return offs.sort((a,b)=>a-b);
+}
+
+// Calcul d'entropie de Shannon (0-8)
+function hexEntropy(bytes){
+  if(!bytes.length) return 0;
+  const freq=new Array(256).fill(0);
+  for(const b of bytes) freq[b]++;
+  let h=0;
+  for(const f of freq){if(f>0){const p=f/bytes.length;h-=p*Math.log2(p);}}
+  return h;
+}
+
+function updateHexSelInfo(){
+  const offs=hexSelectedOffsets();
+  const info=$("hexSelInfo");
+  const btn=$("hexCreateVariant");
+  const stats=$("hexSelStats");
+  if(offs.length===0){
+    info.textContent="";
+    if(stats) stats.textContent="";
+    btn.disabled=true;return;
+  }
+  info.textContent=`${offs.length} octets · 0x${offs[0].toString(16).toUpperCase()}–0x${offs[offs.length-1].toString(16).toUpperCase()}`;
+  if(stats){
+    const selBytes=new Uint8Array(offs.map(o=>hexBytes[o]));
+    const ent=hexEntropy(selBytes);
+    stats.innerHTML=`⬡ ${offs.length} octets sélectionnés · plage 0x${offs[0].toString(16).toUpperCase()}–0x${offs[offs.length-1].toString(16).toUpperCase()} · entropie ${ent.toFixed(2)}/8.0`;
+  }
+  btn.disabled=false;
+}
+
+// ─── Stratégies de modification ───────────────────────────────────────────────
+function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
+  const result=new Uint8Array(bytes);
+  if(offsets.length===0) return result;
+  let pattern=[0x00];
+  if(strategy==="custom"||strategy==="pattern"){
+    const hex=(customValue||"").replace(/[^0-9A-Fa-f]/g,"");
+    pattern=[];
+    for(let i=0;i<hex.length;i+=2){const v=parseInt(hex.substr(i,2),16);if(!isNaN(v))pattern.push(v);}
+    if(pattern.length===0)pattern=[0x00];
+  }
+  const xk=parseInt((xorKey||"FF").replace(/[^0-9A-Fa-f]/g,"").substring(0,2),16)||0xFF;
+  if(strategy==="shuffle"){
+    const vals=offsets.map(o=>result[o]);
+    for(let i=vals.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[vals[i],vals[j]]=[vals[j],vals[i]];}
+    offsets.forEach((o,i)=>{result[o]=vals[i];});return result;
+  }
+  if(strategy==="mirror"){
+    const vals=offsets.map(o=>bytes[o]);
+    offsets.forEach((o,i)=>{result[o]=vals[vals.length-1-i];});return result;
+  }
+  if(strategy==="entropy"){
+    offsets.forEach(o=>{result[o]=Math.floor(Math.random()*256);});return result;
+  }
+  offsets.forEach((o,idx)=>{
+    switch(strategy){
+      case "nop":result[o]=0x90;break;
+      case "zero":result[o]=0x00;break;
+      case "ff":result[o]=0xFF;break;
+      case "int3":result[o]=0xCC;break;
+      case "increment":result[o]=(bytes[o]+1)&0xFF;break;
+      case "decrement":result[o]=(bytes[o]+255)&0xFF;break;
+      case "invert":result[o]=(~bytes[o])&0xFF;break;
+      case "random":result[o]=Math.floor(Math.random()*256);break;
+      case "xor":result[o]=bytes[o]^xk;break;
+      case "pattern":case "custom":result[o]=pattern[idx%pattern.length];break;
+    }
+  });
+  return result;
+}
+
+const HEX_STRAT_LABELS={nop:"NOP",zero:"Zéros",ff:"0xFF",int3:"INT3",custom:"Custom",
+  increment:"Incrément",decrement:"Décrément",invert:"NOT",xor:"XOR",random:"Aléatoire",
+  pattern:"Motif",shuffle:"Shuffle",mirror:"Miroir",entropy:"Entropie"};
+
+const HEX_STRAT_DESC={
+  nop:"Instruction neutre x86 — la plus sûre pour le code",
+  zero:"Efface la zone — idéal pour padding/données",
+  ff:"Remplit de 255 — test de limite",
+  int3:"Breakpoint x86 — arrête l'exécution",
+  custom:"Tu définis la valeur hex exacte",
+  increment:"Chaque octet +1 — très subtil",
+  decrement:"Chaque octet -1 — très subtil",
+  invert:"NOT bit à bit — 0x4A → 0xB5",
+  xor:"XOR avec clé — réversible",
+  random:"Octets aléatoires — non déterministe",
+  pattern:"Séquence hex répétée sur la zone",
+  shuffle:"Mélange l'ordre des octets",
+  mirror:"Inverse l'ordre — dernier ↔ premier",
+  entropy:"Génère des octets à entropie élevée",
+};
+
+function updateStratDesc(){
+  const d=$("hexStratDesc");
+  if(d) d.textContent=HEX_STRAT_DESC[$("hexStrategy").value]||"";
+}
+
+let hexBlockSize=64;
+
+// Fait défiler la vue hex jusqu'à la ligne contenant l'offset donné
+function scrollHexToOffset(offset){
+  const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
+  const offsetInPage=offset-(hexPage*pageBytes);
+  const rowIndex=Math.floor(offsetInPage/HEX_COLS);
+  const wrap=document.querySelector(".hex-wrap");
+  const rows=$("hexTable").querySelectorAll("tr");
+  if(wrap && rows[rowIndex]){
+    // Positionne la ligne cible en haut de la zone visible (avec petit décalage)
+    const rowTop=rows[rowIndex].offsetTop;
+    wrap.scrollTo({top:Math.max(0,rowTop-8),behavior:"smooth"});
+    // Flash de surbrillance sur la ligne
+    rows[rowIndex].style.transition="background 0.1s";
+    const orig=rows[rowIndex].style.background;
+    rows[rowIndex].style.background="#ffe082";
+    setTimeout(()=>{rows[rowIndex].style.background=orig;},600);
+  }
+}
+
+function renderBlockButtons(){
+  const container=$("hexBlockButtons");
+  if(!hexBytes){container.innerHTML="";return;}
+  const totalBlocks=Math.ceil(hexBytes.length/hexBlockSize);
+  const shown=Math.min(totalBlocks,32);
+  let html="";
+  for(let i=0;i<shown;i++){
+    const blockStart=i*hexBlockSize;
+    // Un bloc est actif si toutes ses lignes sont sélectionnées
+    const linesInBlock=Math.ceil(hexBlockSize/HEX_COLS);
+    let allSel=true;
+    for(let l=0;l<linesInBlock;l++){
+      const rowOff=blockStart+l*HEX_COLS;
+      if(rowOff<hexBytes.length && !hexSelectedRows.has(rowOff)){allSel=false;break;}
+    }
+    html+=`<button class="hex-block-btn${allSel?' active':''}" data-block="${i}">B${i+1}</button>`;
+  }
+  if(totalBlocks>32) html+=`<span style="font-size:11px;color:#888;align-self:center;">+${totalBlocks-32}…</span>`;
+  container.innerHTML=html;
+  container.querySelectorAll(".hex-block-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const bi=parseInt(btn.dataset.block);
+      const blockStart=bi*hexBlockSize;
+      const linesInBlock=Math.ceil(hexBlockSize/HEX_COLS);
+      // Toggle : si déjà tout sélectionné, on désélectionne
+      let allSel=true;
+      for(let l=0;l<linesInBlock;l++){
+        const rowOff=blockStart+l*HEX_COLS;
+        if(rowOff<hexBytes.length && !hexSelectedRows.has(rowOff)){allSel=false;break;}
+      }
+      for(let l=0;l<linesInBlock;l++){
+        const rowOff=blockStart+l*HEX_COLS;
+        if(rowOff<hexBytes.length){
+          if(allSel) hexSelectedRows.delete(rowOff);
+          else hexSelectedRows.add(rowOff);
+        }
+      }
+      // Aller directement au bloc : bonne page + scroll
+      const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
+      const targetPage=Math.floor(blockStart/pageBytes);
+      if(targetPage!==hexPage){hexPage=targetPage;}
+      updateHexSelInfo();renderHex();renderBlockButtons();
+      // Scroll vers la ligne du bloc dans la vue hex
+      scrollHexToOffset(blockStart);
+    });
+  });
+}
+
+// Activer/désactiver le mode sélection
+$("hexSelToggle").addEventListener("click",()=>{
+  hexSelectMode=!hexSelectMode;
+  $("hexSelToggle").textContent=hexSelectMode?"☑️ Cases actives":"☑️ Activer les cases";
+  $("hexSelToggle").style.background=hexSelectMode?"linear-gradient(180deg,#cfe0f7,#a5c8f0)":"";
+  $("hexBlockSize").disabled=!hexSelectMode;
+  $("hexSelAll").disabled=!hexSelectMode;
+  $("hexSelClear").disabled=!hexSelectMode;
+  $("hexBlockButtons").classList.toggle("hidden",!hexSelectMode);
+  if(!hexSelectMode){hexSelectedRows.clear();updateHexSelInfo();}
+  else renderBlockButtons();
+  renderHex();
+});
+
+$("hexBlockSize").addEventListener("change",()=>{
+  hexBlockSize=parseInt($("hexBlockSize").value);
+  renderBlockButtons();
+});
+
+$("hexSelAll").addEventListener("click",()=>{
+  for(let off=0;off<hexBytes.length;off+=HEX_COLS) hexSelectedRows.add(off);
+  updateHexSelInfo();renderHex();renderBlockButtons();
+});
+
+$("hexSelClear").addEventListener("click",()=>{
+  hexSelectedRows.clear();updateHexSelInfo();renderHex();renderBlockButtons();
+});
+
+$("hexStrategy").addEventListener("change",()=>{
+  const s=$("hexStrategy").value;
+  $("hexCustomWrap").classList.toggle("hidden",!(s==="custom"||s==="pattern"));
+  $("hexXorWrap").classList.toggle("hidden",s!=="xor");
+  updateStratDesc();
+});
+updateStratDesc();
+
+// Créer une variante
+$("hexCreateVariant").addEventListener("click",async()=>{
+  const offs=hexSelectedOffsets();
+  if(offs.length===0){alert("Sélectionne d'abord des lignes (active les cases).");return;}
+  const strategy=$("hexStrategy").value;
+  const variantBytes=applyHexStrategy(hexBytes,offs,strategy,$("hexStratValue").value,$("hexXorKey").value);
+  const hash=await sha256Bytes(variantBytes);
+  const origHash=await sha256Bytes(hexBytes);
+  const pe=(variantBytes[0]===0x4D&&variantBytes[1]===0x5A);
+  const ent=hexEntropy(new Uint8Array(offs.map(o=>variantBytes[o]))).toFixed(2);
+  const id=hexVariants.length+1;
+  const name=hexFileNameStr.replace(/(\.\w+)$/,`_test${String(id).padStart(3,"0")}$1`)||`test_${String(id).padStart(3,"0")}.bin`;
+
+  // Diff
+  const diffs=[];
+  for(let i=0;i<variantBytes.length;i++){
+    if(variantBytes[i]!==hexBytes[i]){
+      const start=i;while(i<variantBytes.length&&variantBytes[i]!==hexBytes[i])i++;
+      diffs.push({start,end:i-1,count:i-start});
+    }
+  }
+
+  hexVariants.push({id,name,bytes:variantBytes,hash,origHash,pe,strategy,offsets:offs,entropy:ent,diffs,note:"",date:new Date().toLocaleString("fr-FR")});
+
+  const blob=new Blob([variantBytes],{type:"application/octet-stream"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();
+
+  log(`Variante ${name} créée (${HEX_STRAT_LABELS[strategy]}, ${offs.length} octets, PE ${pe?'valide':'invalide'})`);
+  renderHexVariants();
+  showHexDiff(hexVariants.length-1);
+});
+
+function renderHexVariants(){
+  if(hexVariants.length===0){$("hexVariantList").innerHTML="";return;}
+  let html=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;margin-bottom:4px;">
+    <span style="font-weight:600;color:#0033cc;">Variantes (${hexVariants.length})</span>
+    <button onclick="exportHexVariantsJSON()" style="font-size:10px;padding:3px 8px;">⬇️ Export JSON</button></div>`;
+  html+=`<table style="width:100%;border-collapse:collapse;">`;
+  html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Stratégie</th><th style="padding:4px 6px;">Octets</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">SHA-256</th><th style="padding:4px 6px;">PE</th><th style="padding:4px 6px;">Note</th><th></th></tr>`;
+  hexVariants.forEach((v,i)=>{
+    html+=`<tr style="border-bottom:1px solid #ddd;background:${i%2?'#f5f3ee':'#fff'};">
+      <td style="padding:4px 6px;">${v.name}</td>
+      <td style="padding:4px 6px;text-align:center;">${HEX_STRAT_LABELS[v.strategy]}</td>
+      <td style="padding:4px 6px;text-align:center;">${v.offsets.length}</td>
+      <td style="padding:4px 6px;text-align:center;color:#0a7;">${v.entropy}</td>
+      <td style="padding:4px 6px;color:#0033cc;" title="${v.hash}">${v.hash.substring(0,10)}…</td>
+      <td style="padding:4px 6px;text-align:center;">${v.pe?'✅':'❌'}</td>
+      <td style="padding:4px 6px;"><input value="${v.note}" onchange="setHexVariantNote(${i},this.value)" placeholder="…" style="width:70px;font-size:10px;padding:2px 4px;border:1px solid #ccc;border-radius:2px;"></td>
+      <td style="padding:4px 6px;white-space:nowrap;">
+        <button onclick="showHexDiff(${i})" style="font-size:10px;padding:2px 6px;">🔍</button>
+        <button onclick="redownloadHexVariant(${i})" style="font-size:10px;padding:2px 6px;">⬇️</button>
+        <button onclick="scanHexVariant(${i})" style="font-size:10px;padding:2px 6px;">🛡️</button>
+      </td>
+    </tr>`;
+  });
+  html+=`</table>`;
+  $("hexVariantList").innerHTML=html;
+}
+
+function setHexVariantNote(i,note){ hexVariants[i].note=note; }
+
+function showHexDiff(i){
+  const v=hexVariants[i];
+  const box=$("hexDiffView");
+  const totalMod=v.diffs.reduce((s,d)=>s+d.count,0);
+  let html=`<div style="background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
+    <div style="font-weight:600;color:#0033cc;margin-bottom:6px;">🔍 Comparaison — Original vs ${v.name}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;font-family:monospace;font-size:11px;">
+      <div><span style="color:#888;">Original :</span> <span style="color:#cc1414;">${v.origHash.substring(0,24)}…</span></div>
+      <div><span style="color:#888;">Modifié :</span> <span style="color:#1a9b3a;">${v.hash.substring(0,24)}…</span></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:11px;">
+      <span>Octets modifiés : <b>${totalMod}</b></span>
+      <span>Plages : <b>${v.diffs.length}</b></span>
+      <span>PE : <b>${v.pe?'✅ valide':'❌ invalide'}</b></span>
+      <span>Entropie : <b style="color:#0a7;">${v.entropy}</b></span>
+    </div>
+    <div style="max-height:180px;overflow-y:auto;">
+    <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;">
+      <tr style="background:#d4d0c8;"><th style="padding:3px 6px;text-align:left;">Offset</th><th style="padding:3px 6px;text-align:left;">Original</th><th style="padding:3px 6px;text-align:left;">Variante</th><th style="padding:3px 6px;">Nb</th></tr>`;
+  v.diffs.slice(0,80).forEach(d=>{
+    const o=Array.from(hexBytes.slice(d.start,Math.min(d.end+1,d.start+10))).map(x=>x.toString(16).toUpperCase().padStart(2,"0")).join(" ");
+    const n=Array.from(v.bytes.slice(d.start,Math.min(d.end+1,d.start+10))).map(x=>x.toString(16).toUpperCase().padStart(2,"0")).join(" ");
+    html+=`<tr style="border-bottom:1px solid #eee;"><td style="padding:2px 6px;color:#888;">0x${d.start.toString(16).toUpperCase().padStart(8,"0")}</td><td style="padding:2px 6px;color:#888;">${o}${d.count>10?' …':''}</td><td style="padding:2px 6px;color:#e08a00;font-weight:700;">${n}${d.count>10?' …':''}</td><td style="padding:2px 6px;text-align:center;">${d.count}</td></tr>`;
+  });
+  if(v.diffs.length>80) html+=`<tr><td colspan="4" style="padding:4px;text-align:center;color:#888;">+${v.diffs.length-80} plages…</td></tr>`;
+  html+=`</table></div></div>`;
+  box.innerHTML=html;
+  box.classList.remove("hidden");
+}
+
+function exportHexVariantsJSON(){
+  const data={
+    fichier:hexFileNameStr,
+    variantes:hexVariants.map(v=>({
+      nom:v.name,strategie:HEX_STRAT_LABELS[v.strategy],
+      sha256:v.hash,octetsModifies:v.offsets.length,
+      entropie:v.entropy,peValide:v.pe,
+      premierOffset:`0x${v.offsets[0].toString(16).toUpperCase()}`,
+      dernierOffset:`0x${v.offsets[v.offsets.length-1].toString(16).toUpperCase()}`,
+      note:v.note,date:v.date,
+    }))
+  };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="variantes_rapport.json";a.click();
+}
+
+function redownloadHexVariant(i){
+  const v=hexVariants[i];
+  const blob=new Blob([v.bytes],{type:"application/octet-stream"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=v.name;a.click();
+}
+async function scanHexVariant(i){
+  const v=hexVariants[i];
+  const f=new File([new Uint8Array(v.bytes)],v.name,{type:"application/octet-stream"});
+  doScan(f,v.name);
 }
 
 $("hexApplyBtn").addEventListener("click",()=>{
