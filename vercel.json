@@ -1,7 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/scan.js": { "maxDuration": 15 },
-    "api/status.js": { "maxDuration": 15 }
+    "api/scan.js": { "maxDuration": 30 },
+    "api/status.js": { "maxDuration": 15 },
+    "api/check-hash.js": { "maxDuration": 15 }
   }
 }
