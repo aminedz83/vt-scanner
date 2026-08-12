@@ -774,6 +774,22 @@ async function pollStatus(params,maxTries=40,intervalMs=3000){
 
 const MAX_UPLOAD_SIZE = 4 * 1024 * 1024; // 4 Mo — limite safe Vercel Hobby
 
+// ─── Throttle des scans VT (max ~4 req/min sur compte gratuit) ────────────────
+let lastScanTime = 0;
+const SCAN_MIN_INTERVAL = 16000; // 16 secondes entre scans pour rester sous 4/min
+
+async function throttleScan(){
+  const now = Date.now();
+  const elapsed = now - lastScanTime;
+  if(lastScanTime > 0 && elapsed < SCAN_MIN_INTERVAL){
+    const wait = SCAN_MIN_INTERVAL - elapsed;
+    log(`⏳ Anti-limite VT : attente ${Math.ceil(wait/1000)}s avant le prochain scan…`);
+    $("statusBar").textContent=`Attente ${Math.ceil(wait/1000)}s (limite VT)…`;
+    await sleep(wait);
+  }
+  lastScanTime = Date.now();
+}
+
 async function sha256File(file) {
   const buf = await file.arrayBuffer();
   const hash = await crypto.subtle.digest('SHA-256', buf);
@@ -811,22 +827,33 @@ async function scanBytes(bytes, name){
     if(chk.ok){
       const d = await chk.json();
       if(d.found) return d;
+    } else if(chk.status===429){
+      throw new Error("⏳ Limite VirusTotal atteinte (4/min). Patiente ~1 minute avant de rescanner.");
     }
-  }catch(e){ /* on tente l'upload */ }
+  }catch(e){
+    if(e.message&&e.message.includes("Limite")) throw e;
+    /* sinon on tente l'upload */
+  }
 
   // 2. Vérifier la taille : base64 gonfle de ~33%, limite Vercel ~4.5 Mo
-  const base64Limit = 3 * 1024 * 1024; // 3 Mo de données brutes = ~4 Mo en base64
+  const base64Limit = 3 * 1024 * 1024;
   if(stable.length > base64Limit){
     throw new Error(`Fichier ${(stable.length/1024/1024).toFixed(1)}Mo inconnu de VT — trop grand pour l'upload auto (max 3Mo). Soumets-le sur virustotal.com`);
   }
 
-  // 3. Upload en base64 (POST JSON — fiable iOS)
+  // 3. Anti-limite : espacer les uploads
+  await throttleScan();
+
+  // 4. Upload en base64 (POST JSON — fiable iOS)
   const fileBase64 = bytesToBase64(stable);
   const res = await fetch("/api/scan",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({ fileBase64, filename: name })
   });
+  if(res.status===429){
+    throw new Error("⏳ Limite VirusTotal atteinte (4/min). Patiente ~1 minute avant de rescanner.");
+  }
   if(!res.ok){
     const e = await res.json().catch(()=>({}));
     throw new Error(e.error || `Serveur ${res.status}`);
