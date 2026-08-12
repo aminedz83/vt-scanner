@@ -6,34 +6,42 @@ function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
-// Lit le corps de la requête en brut (indépendant du bodyParser Vercel)
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on("data", c => chunks.push(c));
+    req.on("data", (c) => chunks.push(c));
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
 }
 
-module.exports = async (req, res) => {
-  if (req.method !== "POST") return res.status(405).json({ error: "Méthode non autorisée" });
-  if (!process.env.VT_API_KEY) return res.status(500).json({ error: "VT_API_KEY manquante côté serveur" });
+module.exports = async function handler(req, res) {
+  // CORS / preflight
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Méthode non autorisée" });
+  }
+  if (!process.env.VT_API_KEY) {
+    return res.status(500).json({ error: "VT_API_KEY manquante côté serveur" });
+  }
 
   try {
-    // req.body peut déjà être parsé par Vercel, sinon on lit le flux brut
+    // Récupère le corps, que Vercel l'ait parsé ou non
     let body = req.body;
-    if (!body || typeof body === "string") {
-      const raw = typeof body === "string" ? body : await readRawBody(req);
-      try { body = JSON.parse(raw); }
-      catch { return res.status(400).json({ error: "JSON invalide" }); }
+    if (body === undefined || body === null || typeof body === "string") {
+      const raw = typeof body === "string" && body.length ? body : await readRawBody(req);
+      try { body = JSON.parse(raw); } catch { return res.status(400).json({ error: "JSON invalide" }); }
     }
 
-    const { fileBase64, filename } = body || {};
+    const fileBase64 = body.fileBase64;
+    const filename = body.filename || "fichier";
     if (!fileBase64) return res.status(400).json({ error: "Aucun fichier reçu" });
 
     const buffer = Buffer.from(fileBase64, "base64");
-    const name = filename || "fichier";
     const size = buffer.length;
     const hash = sha256(buffer);
 
@@ -41,12 +49,12 @@ module.exports = async (req, res) => {
     const existing = await vtFetch(`/files/${hash}`);
     if (existing.status === 200) {
       const data = await existing.json();
-      return res.json(formatResult(data, name, size, hash, true));
+      return res.status(200).json(formatResult(data, filename, size, hash, true));
     }
 
-    // Sinon on l'envoie pour analyse
+    // Upload pour analyse
     const vtForm = new FormData();
-    vtForm.append("file", new Blob([buffer]), name);
+    vtForm.append("file", new Blob([buffer]), filename);
     const uploadRes = await vtFetch("/files", { method: "POST", body: vtForm });
     const uploadData = await uploadRes.json();
 
@@ -54,7 +62,7 @@ module.exports = async (req, res) => {
       return res.status(502).json({ error: "Réponse VirusTotal inattendue" });
     }
 
-    return res.json({ done: false, analysisId: uploadData.data.id, hash, filename: name, size });
+    return res.status(200).json({ done: false, analysisId: uploadData.data.id, hash, filename, size });
   } catch (err) {
     console.error("scan error:", err);
     if (err.rateLimited) return res.status(429).json({ error: err.message });
