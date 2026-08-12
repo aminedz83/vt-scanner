@@ -60,6 +60,9 @@
   .hex-block-btn{padding:5px 12px;background:linear-gradient(180deg,#fdfdfd,#e8e8e8);border:1px solid var(--win-border);color:#444;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;font-weight:600;transition:all .1s;min-width:38px;}
   .hex-block-btn:hover{background:linear-gradient(180deg,#e8f0ff,#cfe0f7);border-color:var(--panel-blue);color:var(--panel-blue);}
   .hex-block-btn.active{background:linear-gradient(180deg,#cfe0f7,#a5c8f0);border-color:var(--panel-blue);color:var(--panel-blue);}
+  #hexCreateVariant:not(:disabled):hover{background:linear-gradient(180deg,#6aabe0,#4589cc)!important;box-shadow:0 2px 6px rgba(58,123,192,0.4)!important;}
+  #hexCreateVariant:not(:disabled):active{transform:translateY(1px);box-shadow:0 1px 2px rgba(0,0,0,0.2)!important;}
+  #hexCreateVariant:disabled{background:linear-gradient(180deg,#d0d0d0,#b8b8b8)!important;color:#efefef!important;border-color:#a8a8a8!important;cursor:not-allowed;box-shadow:none!important;}
   .hex-block-btn.block-pad{border-left:4px solid #5cb85c;}
   .hex-block-btn.block-data{border-left:4px solid #f0ad4e;}
   .hex-block-btn.block-dense{border-left:4px solid #d9534f;}
@@ -506,14 +509,14 @@
       <!-- Stratégies & variantes -->
       <fieldset id="hexVariantBox" style="border-color:#5a6b9b;background:#f5f7ff;">
         <legend style="color:#0033cc;">⚗️ Créer des variantes de test</legend>
-        <div style="font-size:11px;color:#555;margin-bottom:8px;">
+        <div style="font-size:11px;color:#555;margin-bottom:8px;overflow-wrap:break-word;word-break:break-word;max-width:100%;">
           Sélectionne des lignes (active les cases ci-dessus), choisis une stratégie, et crée une copie modifiée. L'original reste intact.
         </div>
-        <div id="hexSelStats" style="font-size:11px;font-family:monospace;color:#0033cc;margin-bottom:8px;"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;">
-          <div style="flex:1;min-width:180px;">
+        <div id="hexSelStats" style="font-size:11px;font-family:monospace;color:#0033cc;margin-bottom:8px;overflow-wrap:break-word;word-break:break-word;"></div>
+        <div style="display:flex;gap:8px;flex-direction:column;margin-bottom:8px;width:100%;box-sizing:border-box;">
+          <div style="width:100%;box-sizing:border-box;">
             <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Stratégie</label>
-            <select id="hexStrategy" style="width:100%;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;">
+            <select id="hexStrategy" style="width:100%;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;box-sizing:border-box;">
               <optgroup label="── Basique ──">
                 <option value="nop">NOP (0x90) — neutre x86</option>
                 <option value="zero">Zéros (0x00)</option>
@@ -547,9 +550,9 @@
             <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Clé XOR</label>
             <input type="text" id="hexXorKey" maxlength="2" placeholder="FF" style="width:55px;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;font-family:monospace;" />
           </div>
-          <button class="primary" id="hexCreateVariant" style="width:auto;padding:8px 16px;" disabled>⚗️ Créer variante</button>
+          <button class="primary" id="hexCreateVariant" style="width:100%;padding:12px;box-sizing:border-box;font-size:14px;font-weight:700;background:linear-gradient(180deg,#5b9bd5,#3a7bc0);color:#fff;border:1px solid #2d6aad;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.15);cursor:pointer;" disabled>⚗️ Créer variante</button>
         </div>
-        <div id="hexVariantList" style="font-size:11px;font-family:monospace;"></div>
+        <div id="hexVariantList" style="font-size:11px;font-family:monospace;max-width:100%;overflow-x:auto;"></div>
         <div id="hexDiffView" class="hidden" style="margin-top:10px;"></div>
       </fieldset>
 
@@ -2235,8 +2238,7 @@ $("hexCreateVariant").addEventListener("click",async()=>{
   hexVariants.push({id,name,bytes:Array.from(variantBytes),hash,origHash,pe,strategy,offsets:offs,entropy:ent,diffs,blocks:blocksLabel,blockSize:hexBlockSize,note:"",date:new Date().toLocaleString("fr-FR"),fileName:hexFileNameStr});
   saveHexVariants();
 
-  const blob=new Blob([variantBytes],{type:"application/octet-stream"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  downloadBytes(variantBytes, name);
 
   log(`Variante ${name} créée (${HEX_STRAT_LABELS[strategy]}, ${offs.length} octets, blocs ${blocksLabel}, PE ${pe?'valide':'invalide'})`);
   renderHexVariants();
@@ -2266,10 +2268,12 @@ function loadHexVariants(){
 
 function renderHexVariants(){
   if(hexVariants.length===0){$("hexVariantList").innerHTML="";return;}
-  let html=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;margin-bottom:4px;">
-    <span style="font-weight:600;color:#0033cc;">Variantes (${hexVariants.length}) — sauvegardées</span>
-    <span><button onclick="exportHexVariantsJSON()" style="font-size:10px;padding:3px 8px;">⬇️ Export JSON</button>
-    <button onclick="clearAllHexVariants()" style="font-size:10px;padding:3px 8px;color:#c00;">🗑️ Tout effacer</button></span></div>`;
+  let html=`<div style="margin-top:10px;margin-bottom:6px;">
+    <div style="font-weight:600;color:#0033cc;margin-bottom:4px;">Variantes (${hexVariants.length}) — sauvegardées</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button onclick="exportHexVariantsJSON()" style="font-size:10px;padding:3px 8px;">⬇️ Export JSON</button>
+      <button onclick="clearAllHexVariants()" style="font-size:10px;padding:3px 8px;color:#c00;">🗑️ Tout effacer</button>
+    </div></div>`;
   html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:600px;">`;
   html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Blocs</th><th style="padding:4px 6px;">Stratégie</th><th style="padding:4px 6px;">Octets</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">SHA-256</th><th style="padding:4px 6px;">PE</th><th style="padding:4px 6px;">Note</th><th></th></tr>`;
   hexVariants.forEach((v,i)=>{
@@ -2364,10 +2368,29 @@ function exportHexVariantsJSON(){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="variantes_rapport.json";a.click();
 }
 
+function downloadBytes(bytes, filename){
+  try{
+    const blob=new Blob([new Uint8Array(bytes)],{type:"application/octet-stream"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=filename;
+    a.style.display="none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
+    return true;
+  }catch(e){
+    log(`Erreur téléchargement : ${e.message}`);
+    return false;
+  }
+}
+
 function redownloadHexVariant(i){
   const v=hexVariants[i];
-  const blob=new Blob([new Uint8Array(v.bytes)],{type:"application/octet-stream"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=v.name;a.click();
+  if(!v||!v.bytes){alert("Données de la variante introuvables.");return;}
+  const ok=downloadBytes(v.bytes, v.name);
+  if(ok) log(`Variante ${v.name} téléchargée`);
 }
 async function scanHexVariant(i){
   const v=hexVariants[i];
