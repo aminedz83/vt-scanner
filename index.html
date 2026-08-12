@@ -60,6 +60,9 @@
   .hex-block-btn.block-data{border-left:4px solid #f0ad4e;}
   .hex-block-btn.block-dense{border-left:4px solid #d9534f;}
   .hex-block-btn.block-pad.active,.hex-block-btn.block-data.active,.hex-block-btn.block-dense.active{background:linear-gradient(180deg,#cfe0f7,#a5c8f0);}
+  .hex-block-btn.sec-risk-safe{border-left:4px solid #5cb85c;}
+  .hex-block-btn.sec-risk-med{border-left:4px solid #f0ad4e;}
+  .hex-block-btn.sec-risk-high{border-left:4px solid #d9534f;}
   .hex-ascii{color:#555;border-left:1px solid #ddd;letter-spacing:1px;}
   .hex-edit-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;}
   .hex-edit-row label{font-size:12px;color:#555;}
@@ -442,6 +445,11 @@
         <div id="hexSectionMap" class="hidden" style="margin-bottom:8px;">
           <div style="font-size:11px;font-weight:600;color:#555;margin-bottom:4px;">🗺️ Sections PE (clic = aller à la section)</div>
           <div id="hexSectionBtns" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+          <div style="font-size:9px;color:#888;margin-top:3px;display:flex;gap:10px;flex-wrap:wrap;">
+            <span><span style="display:inline-block;width:9px;height:9px;background:#5cb85c;vertical-align:middle;"></span> sûr à modifier</span>
+            <span><span style="display:inline-block;width:9px;height:9px;background:#f0ad4e;vertical-align:middle;"></span> avec précaution</span>
+            <span><span style="display:inline-block;width:9px;height:9px;background:#d9534f;vertical-align:middle;"></span> risqué</span>
+          </div>
         </div>
 
         <!-- Mini-carte d'entropie -->
@@ -2023,11 +2031,12 @@ function renderHexSectionMap(){
       secOff+=40;
     }
     if(sections.length===0){box.classList.add("hidden");return;}
-    // Boutons cliquables : header + chaque section
-    let html=`<button class="hex-block-btn" data-secoff="0" title="En-tête du fichier">📄 Header</button>`;
+    // Boutons cliquables : header + chaque section, colorés par risque
+    let html=`<button class="hex-block-btn sec-risk-med" data-secoff="0" title="En-tête du fichier — modifiable avec précaution">📄 Header</button>`;
     sections.forEach(s=>{
       const sizeKb=(s.rawSize/1024).toFixed(1);
-      html+=`<button class="hex-block-btn" data-secoff="${s.rawOff}" title="${s.name} — 0x${s.rawOff.toString(16).toUpperCase()}, ${sizeKb} Ko">${s.name}</button>`;
+      const risk=sectionRisk(s.name);
+      html+=`<button class="hex-block-btn sec-risk-${risk.level}" data-secoff="${s.rawOff}" title="${s.name} — ${risk.tip} · 0x${s.rawOff.toString(16).toUpperCase()}, ${sizeKb} Ko">${s.name}</button>`;
     });
     btns.innerHTML=html;
     btns.querySelectorAll("[data-secoff]").forEach(b=>{
@@ -2042,6 +2051,20 @@ function renderHexSectionMap(){
     });
     box.classList.remove("hidden");
   }catch(e){box.classList.add("hidden");}
+}
+
+// Niveau de risque de modification d'une section selon son nom
+function sectionRisk(name){
+  const n=name.toLowerCase();
+  // Sûr : ressources, données lisibles
+  if(n.includes("rsrc")) return {level:"safe",tip:"sûr à modifier (ressources)"};
+  // Risqué : code exécutable, relocations, imports
+  if(n.includes("text")||n.includes("code")) return {level:"high",tip:"risqué (code exécutable)"};
+  if(n.includes("reloc")) return {level:"high",tip:"risqué (relocations)"};
+  if(n.includes("idata")||n.includes("iat")) return {level:"high",tip:"risqué (imports)"};
+  // Moyen : données, tout le reste
+  if(n.includes("data")||n.includes("bss")||n.includes("rdata")) return {level:"med",tip:"précaution (données)"};
+  return {level:"med",tip:"précaution"};
 }
 
 // ─── Mini-carte d'entropie ────────────────────────────────────────────────────
