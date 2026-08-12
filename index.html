@@ -437,6 +437,24 @@
 
       <fieldset>
         <legend>Vue hexadécimale</legend>
+
+        <!-- Carte des sections PE -->
+        <div id="hexSectionMap" class="hidden" style="margin-bottom:8px;">
+          <div style="font-size:11px;font-weight:600;color:#555;margin-bottom:4px;">🗺️ Sections PE (clic = aller à la section)</div>
+          <div id="hexSectionBtns" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+        </div>
+
+        <!-- Mini-carte d'entropie -->
+        <div id="hexEntropyMap" class="hidden" style="margin-bottom:8px;">
+          <div style="font-size:11px;font-weight:600;color:#555;margin-bottom:4px;">📊 Carte du fichier (clic = aller à la zone)</div>
+          <canvas id="hexEntropyCanvas" height="28" style="width:100%;height:28px;border:1px solid var(--win-border);border-radius:3px;cursor:pointer;display:block;"></canvas>
+          <div style="font-size:9px;color:#888;margin-top:2px;display:flex;gap:10px;flex-wrap:wrap;">
+            <span><span style="display:inline-block;width:9px;height:9px;background:#5cb85c;vertical-align:middle;"></span> vide</span>
+            <span><span style="display:inline-block;width:9px;height:9px;background:#f0ad4e;vertical-align:middle;"></span> code/données</span>
+            <span><span style="display:inline-block;width:9px;height:9px;background:#d9534f;vertical-align:middle;"></span> dense</span>
+          </div>
+        </div>
+
         <div id="hexSelPanel" style="margin-bottom:8px;">
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
             <label style="font-weight:600;color:#555;font-size:11px;">SÉLECTION :</label>
@@ -1635,8 +1653,13 @@ $("hexFileInput").addEventListener("change",()=>{
     hexSelectedOffset=null;
     hexPeOffsets=null;
     hexPeHighlighted=[];
+    hexPage=0;
+    hexSelectedRows.clear();
+    hexVariants=[];
     detectHexPE();
     renderHex();
+    renderHexSectionMap();
+    renderHexEntropyMap();
     $("hexEditorBox").classList.remove("hidden");
   };
   r.readAsArrayBuffer(f);
@@ -1976,6 +1999,86 @@ function classifyBlock(bytes){
     return {type:"dense",tip:`Dense (entropie ${ent.toFixed(1)}/8) — compressé ou chiffré`};
   }
   return {type:"data",tip:`Contenu réel (entropie ${ent.toFixed(1)}/8) — modifiable`};
+}
+
+// ─── Carte des sections PE ────────────────────────────────────────────────────
+function renderHexSectionMap(){
+  const box=$("hexSectionMap");
+  const btns=$("hexSectionBtns");
+  if(!hexBytes||hexBytes[0]!==0x4D||hexBytes[1]!==0x5A){box.classList.add("hidden");return;}
+  try{
+    const peOff=hexBytes[0x3C]|(hexBytes[0x3D]<<8)|(hexBytes[0x3E]<<16)|(hexBytes[0x3F]<<24);
+    if(hexBytes[peOff]!==0x50||hexBytes[peOff+1]!==0x45){box.classList.add("hidden");return;}
+    const numSec=hexBytes[peOff+6]|(hexBytes[peOff+7]<<8);
+    const optSize=hexBytes[peOff+20]|(hexBytes[peOff+21]<<8);
+    let secOff=peOff+24+optSize;
+    const sections=[];
+    for(let i=0;i<numSec&&i<20;i++){
+      let name="";
+      for(let j=0;j<8;j++){const c=hexBytes[secOff+j];if(c>=32&&c<127)name+=String.fromCharCode(c);}
+      name=name.replace(/\0/g,"").trim();
+      const rawOff=hexBytes[secOff+20]|(hexBytes[secOff+21]<<8)|(hexBytes[secOff+22]<<16)|(hexBytes[secOff+23]<<24);
+      const rawSize=hexBytes[secOff+16]|(hexBytes[secOff+17]<<8)|(hexBytes[secOff+18]<<16)|(hexBytes[secOff+19]<<24);
+      if(name&&rawOff>0) sections.push({name,rawOff,rawSize});
+      secOff+=40;
+    }
+    if(sections.length===0){box.classList.add("hidden");return;}
+    // Boutons cliquables : header + chaque section
+    let html=`<button class="hex-block-btn" data-secoff="0" title="En-tête du fichier">📄 Header</button>`;
+    sections.forEach(s=>{
+      const sizeKb=(s.rawSize/1024).toFixed(1);
+      html+=`<button class="hex-block-btn" data-secoff="${s.rawOff}" title="${s.name} — 0x${s.rawOff.toString(16).toUpperCase()}, ${sizeKb} Ko">${s.name}</button>`;
+    });
+    btns.innerHTML=html;
+    btns.querySelectorAll("[data-secoff]").forEach(b=>{
+      b.addEventListener("click",()=>{
+        const off=parseInt(b.dataset.secoff);
+        const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
+        hexPage=Math.floor(off/pageBytes);
+        renderHex();
+        if(hexSelectMode) renderBlockButtons();
+        scrollHexToOffset(off);
+      });
+    });
+    box.classList.remove("hidden");
+  }catch(e){box.classList.add("hidden");}
+}
+
+// ─── Mini-carte d'entropie ────────────────────────────────────────────────────
+function renderHexEntropyMap(){
+  const box=$("hexEntropyMap");
+  const canvas=$("hexEntropyCanvas");
+  if(!hexBytes||hexBytes.length<64){box.classList.add("hidden");return;}
+  const ctx=canvas.getContext("2d");
+  const W=canvas.width=canvas.offsetWidth||600;
+  const H=canvas.height;
+  const segments=Math.min(W,300);
+  const segSize=Math.ceil(hexBytes.length/segments);
+  for(let i=0;i<segments;i++){
+    const start=i*segSize;
+    const end=Math.min(start+segSize,hexBytes.length);
+    const slice=hexBytes.slice(start,end);
+    const cls=classifyBlock(slice);
+    let color="#f0ad4e";
+    if(cls.type==="pad") color="#5cb85c";
+    else if(cls.type==="dense") color="#d9534f";
+    ctx.fillStyle=color;
+    const x=(i/segments)*W;
+    const w=Math.ceil(W/segments)+1;
+    ctx.fillRect(x,0,w,H);
+  }
+  // Clic → aller à la position correspondante
+  canvas.onclick=(ev)=>{
+    const rect=canvas.getBoundingClientRect();
+    const ratio=(ev.clientX-rect.left)/rect.width;
+    const targetOff=Math.floor(ratio*hexBytes.length);
+    const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
+    hexPage=Math.floor(targetOff/pageBytes);
+    renderHex();
+    if(hexSelectMode) renderBlockButtons();
+    scrollHexToOffset(Math.floor(targetOff/HEX_COLS)*HEX_COLS);
+  };
+  box.classList.remove("hidden");
 }
 
 // Activer/désactiver le mode sélection
