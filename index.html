@@ -1719,7 +1719,6 @@ $("hexFileInput").addEventListener("change",()=>{
     hexPeHighlighted=[];
     hexPage=0;
     hexSelectedRows.clear();
-    hexVariants=[];
     hexSectionRange=null;
     detectHexPE();
     renderHex();
@@ -1808,6 +1807,7 @@ const HEX_PAGE_ROWS=512, HEX_COLS=16;
 let hexSelectMode=false;
 let hexSelectedRows=new Set(); // offsets de début de ligne sélectionnés
 let hexVariants=[];
+let hexVariantCounter=0;
 let hexSectionRange=null; // {start,end} de la section actuellement mise en évidence
 
 function renderHex(){
@@ -2215,7 +2215,7 @@ $("hexCreateVariant").addEventListener("click",async()=>{
   const origHash=await sha256Bytes(hexBytes);
   const pe=(variantBytes[0]===0x4D&&variantBytes[1]===0x5A);
   const ent=hexEntropy(new Uint8Array(offs.map(o=>variantBytes[o]))).toFixed(2);
-  const id=hexVariants.length+1;
+  const id=(hexVariantCounter++)+1;
   const name=hexFileNameStr.replace(/(\.\w+)$/,`_test${String(id).padStart(3,"0")}$1`)||`test_${String(id).padStart(3,"0")}.bin`;
 
   // Diff
@@ -2227,44 +2227,96 @@ $("hexCreateVariant").addEventListener("click",async()=>{
     }
   }
 
-  hexVariants.push({id,name,bytes:variantBytes,hash,origHash,pe,strategy,offsets:offs,entropy:ent,diffs,note:"",date:new Date().toLocaleString("fr-FR")});
+  // Quels blocs ont été modifiés (B1, B17…) selon la taille de bloc courante
+  const modBlocks=new Set();
+  offs.forEach(o=>{ modBlocks.add(Math.floor(o/hexBlockSize)+1); });
+  const blocksLabel=[...modBlocks].sort((a,b)=>a-b).map(n=>"B"+n).join(" ");
+
+  hexVariants.push({id,name,bytes:Array.from(variantBytes),hash,origHash,pe,strategy,offsets:offs,entropy:ent,diffs,blocks:blocksLabel,blockSize:hexBlockSize,note:"",date:new Date().toLocaleString("fr-FR"),fileName:hexFileNameStr});
+  saveHexVariants();
 
   const blob=new Blob([variantBytes],{type:"application/octet-stream"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();
 
-  log(`Variante ${name} créée (${HEX_STRAT_LABELS[strategy]}, ${offs.length} octets, PE ${pe?'valide':'invalide'})`);
+  log(`Variante ${name} créée (${HEX_STRAT_LABELS[strategy]}, ${offs.length} octets, blocs ${blocksLabel}, PE ${pe?'valide':'invalide'})`);
   renderHexVariants();
   showHexDiff(hexVariants.length-1);
 });
 
+// Persistance localStorage
+function saveHexVariants(){
+  try{
+    // On stocke sans les bytes complets si trop gros (garde metadata + bytes)
+    localStorage.setItem("hexVariants", JSON.stringify(hexVariants));
+    localStorage.setItem("hexVariantCounter", String(hexVariantCounter));
+  }catch(e){ log("⚠️ Sauvegarde variantes impossible (stockage plein)"); }
+}
+
+function loadHexVariants(){
+  try{
+    const saved=localStorage.getItem("hexVariants");
+    if(saved){
+      hexVariants=JSON.parse(saved);
+      // Reconvertir les bytes (stockés en array) en Uint8Array à l'usage
+      hexVariantCounter=parseInt(localStorage.getItem("hexVariantCounter"))||hexVariants.length;
+      renderHexVariants();
+    }
+  }catch(e){ hexVariants=[]; }
+}
+
 function renderHexVariants(){
   if(hexVariants.length===0){$("hexVariantList").innerHTML="";return;}
   let html=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;margin-bottom:4px;">
-    <span style="font-weight:600;color:#0033cc;">Variantes (${hexVariants.length})</span>
-    <button onclick="exportHexVariantsJSON()" style="font-size:10px;padding:3px 8px;">⬇️ Export JSON</button></div>`;
-  html+=`<table style="width:100%;border-collapse:collapse;">`;
-  html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Stratégie</th><th style="padding:4px 6px;">Octets</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">SHA-256</th><th style="padding:4px 6px;">PE</th><th style="padding:4px 6px;">Note</th><th></th></tr>`;
+    <span style="font-weight:600;color:#0033cc;">Variantes (${hexVariants.length}) — sauvegardées</span>
+    <span><button onclick="exportHexVariantsJSON()" style="font-size:10px;padding:3px 8px;">⬇️ Export JSON</button>
+    <button onclick="clearAllHexVariants()" style="font-size:10px;padding:3px 8px;color:#c00;">🗑️ Tout effacer</button></span></div>`;
+  html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:600px;">`;
+  html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Blocs</th><th style="padding:4px 6px;">Stratégie</th><th style="padding:4px 6px;">Octets</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">SHA-256</th><th style="padding:4px 6px;">PE</th><th style="padding:4px 6px;">Note</th><th></th></tr>`;
   hexVariants.forEach((v,i)=>{
     html+=`<tr style="border-bottom:1px solid #ddd;background:${i%2?'#f5f3ee':'#fff'};">
       <td style="padding:4px 6px;">${v.name}</td>
-      <td style="padding:4px 6px;text-align:center;">${HEX_STRAT_LABELS[v.strategy]}</td>
+      <td style="padding:4px 6px;text-align:center;font-family:monospace;color:#0033cc;font-size:10px;" title="${v.blocks||''}">${v.blocks||'—'}</td>
+      <td style="padding:4px 6px;text-align:center;">${HEX_STRAT_LABELS[v.strategy]||v.strategy}</td>
       <td style="padding:4px 6px;text-align:center;">${v.offsets.length}</td>
       <td style="padding:4px 6px;text-align:center;color:#0a7;">${v.entropy}</td>
       <td style="padding:4px 6px;color:#0033cc;" title="${v.hash}">${v.hash.substring(0,10)}…</td>
       <td style="padding:4px 6px;text-align:center;">${v.pe?'✅':'❌'}</td>
-      <td style="padding:4px 6px;"><input value="${v.note}" onchange="setHexVariantNote(${i},this.value)" placeholder="…" style="width:70px;font-size:10px;padding:2px 4px;border:1px solid #ccc;border-radius:2px;"></td>
+      <td style="padding:4px 6px;"><input value="${(v.note||'').replace(/"/g,'&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="…" style="width:70px;font-size:10px;padding:2px 4px;border:1px solid #ccc;border-radius:2px;"></td>
       <td style="padding:4px 6px;white-space:nowrap;">
-        <button onclick="showHexDiff(${i})" style="font-size:10px;padding:2px 6px;">🔍</button>
-        <button onclick="redownloadHexVariant(${i})" style="font-size:10px;padding:2px 6px;">⬇️</button>
-        <button onclick="scanHexVariant(${i})" style="font-size:10px;padding:2px 6px;">🛡️</button>
+        <button onclick="showHexDiff(${i})" style="font-size:10px;padding:2px 6px;" title="Comparer">🔍</button>
+        <button onclick="redownloadHexVariant(${i})" style="font-size:10px;padding:2px 6px;" title="Télécharger">⬇️</button>
+        <button onclick="scanHexVariant(${i})" style="font-size:10px;padding:2px 6px;" title="Scanner">🛡️</button>
+        <button onclick="deleteHexVariant(${i})" style="font-size:10px;padding:2px 6px;color:#c00;" title="Supprimer">🗑️</button>
       </td>
     </tr>`;
   });
-  html+=`</table>`;
+  html+=`</table></div>`;
   $("hexVariantList").innerHTML=html;
 }
 
-function setHexVariantNote(i,note){ hexVariants[i].note=note; }
+function setHexVariantNote(i,note){ hexVariants[i].note=note; saveHexVariants(); }
+
+// Supprimer une variante manuellement
+function deleteHexVariant(i){
+  const v=hexVariants[i];
+  if(!confirm(`Supprimer la variante "${v.name}" ?`)) return;
+  hexVariants.splice(i,1);
+  saveHexVariants();
+  renderHexVariants();
+  $("hexDiffView").classList.add("hidden");
+  log(`Variante ${v.name} supprimée`);
+}
+
+function clearAllHexVariants(){
+  if(hexVariants.length===0) return;
+  if(!confirm(`Effacer TOUTES les ${hexVariants.length} variantes ? Cette action est définitive.`)) return;
+  hexVariants=[];
+  hexVariantCounter=0;
+  saveHexVariants();
+  renderHexVariants();
+  $("hexDiffView").classList.add("hidden");
+  log("Toutes les variantes effacées");
+}
 
 function showHexDiff(i){
   const v=hexVariants[i];
@@ -2314,7 +2366,7 @@ function exportHexVariantsJSON(){
 
 function redownloadHexVariant(i){
   const v=hexVariants[i];
-  const blob=new Blob([v.bytes],{type:"application/octet-stream"});
+  const blob=new Blob([new Uint8Array(v.bytes)],{type:"application/octet-stream"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=v.name;a.click();
 }
 async function scanHexVariant(i){
@@ -2669,6 +2721,9 @@ $("hxStrReplace").addEventListener("click",()=>{
   if(count>0){renderHex();log(`Strings: "${find}" remplacé par "${repl}" — ${count} occurrence(s)`);}
   else{alert(`"${find}" non trouvé dans le fichier.`);}
 });
+
+// Charger les variantes sauvegardées au démarrage
+loadHexVariants();
 </script>
 </body>
 </html>
