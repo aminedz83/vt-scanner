@@ -874,16 +874,20 @@ async function scanBytes(bytes, name){
 
   // 4. Upload en base64 (POST JSON — fiable iOS)
   const fileBase64 = bytesToBase64(stable);
+  log(`📤 Upload : ${(stable.length/1024).toFixed(0)}Ko → ${(fileBase64.length/1024).toFixed(0)}Ko base64`);
   const res = await fetch("/api/scan",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({ fileBase64, filename: name })
   });
+  log(`📡 Réponse /api/scan : HTTP ${res.status}`);
   if(res.status===429){
     throw new Error("⏳ Limite VirusTotal atteinte (4/min). Patiente ~1 minute avant de rescanner.");
   }
   if(!res.ok){
-    const e = await res.json().catch(()=>({}));
+    const txt = await res.text().catch(()=>"(vide)");
+    log(`❌ Corps réponse : ${txt.substring(0,150)}`);
+    let e={}; try{e=JSON.parse(txt);}catch(_){}
     throw new Error(e.error || `Serveur ${res.status}`);
   }
   let data = await res.json();
@@ -2314,24 +2318,30 @@ function renderHexVariants(){
     </div></div>`;
   html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">`;
   hexVariants.forEach((v,i)=>{
-    html+=`<div style="border:1px solid #c8c8c8;border-radius:6px;background:${i%2?'#f9f8f4':'#fff'};padding:8px;box-sizing:border-box;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
-        <span style="font-weight:700;color:#0033cc;font-size:12px;">${v.name}</span>
-        <span style="font-size:11px;">${v.pe?'✅ PE valide':'❌ PE invalide'}</span>
+    html+=`<div style="border:1px solid #c8c8c8;border-radius:6px;background:${i%2?'#f9f8f4':'#fff'};padding:10px;box-sizing:border-box;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;border-bottom:1px solid #e5e5e5;padding-bottom:6px;">
+        <span style="font-weight:700;color:#0033cc;font-size:13px;">${v.name}</span>
+        <span style="display:flex;gap:8px;align-items:center;">
+          ${v.vtTotal!==undefined?`<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${v.vtDetections>0?'#ffe0e0':'#e0f5e0'};color:${v.vtDetections>0?'#c00':'#0a7'};" title="Détections VirusTotal">🛡️ ${v.vtDetections}/${v.vtTotal}</span>`:''}
+          <span style="font-size:11px;font-weight:600;">${v.pe?'<span style="color:#0a7;">✅ PE valide</span>':'<span style="color:#c00;">❌ PE invalide</span>'}</span>
+        </span>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:10px;color:#555;margin-bottom:6px;">
-        <span>📦 Blocs : <b style="color:#0033cc;">${v.blocks||'—'}</b></span>
-        <span>🔧 ${HEX_STRAT_LABELS[v.strategy]||v.strategy}</span>
-        <span>${v.offsets.length} octets</span>
-        <span>📊 ${v.entropy}</span>
-        <span title="${v.hash}">🔑 ${v.hash.substring(0,10)}…</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px;color:#444;margin-bottom:8px;">
+        <span><b style="color:#666;">Blocs modifiés :</b> <span style="color:#0033cc;font-weight:600;">${v.blocks||'—'}</span></span>
+        <span><b style="color:#666;">Stratégie :</b> ${HEX_STRAT_LABELS[v.strategy]||v.strategy}</span>
+        <span><b style="color:#666;">Octets modifiés :</b> ${v.offsets.length}</span>
+        <span><b style="color:#666;">Entropie :</b> <span style="color:#0a7;">${v.entropy}/8</span></span>
+        <span style="grid-column:1 / -1;" title="${v.hash}"><b style="color:#666;">SHA-256 :</b> <span style="color:#0033cc;font-family:monospace;">${v.hash.substring(0,20)}…</span></span>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <input value="${(v.note||'').replace(/"/g,'&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Note…" style="flex:1;min-width:80px;font-size:11px;padding:4px 6px;border:1px solid #ccc;border-radius:3px;box-sizing:border-box;">
-        <button onclick="showHexDiff(${i})" style="font-size:13px;padding:5px 9px;" title="Comparer">🔍</button>
-        <button onclick="redownloadHexVariant(${i})" style="font-size:13px;padding:5px 9px;" title="Télécharger">⬇️</button>
-        <button onclick="scanHexVariant(${i})" style="font-size:13px;padding:5px 9px;" title="Scanner VT">🛡️</button>
-        <button onclick="deleteHexVariant(${i})" style="font-size:13px;padding:5px 9px;background:#ffe0e0;border:1px solid #d99;border-radius:4px;" title="Supprimer cette variante">🗑️</button>
+      <div style="margin-bottom:6px;">
+        <label style="font-size:10px;color:#666;display:block;margin-bottom:2px;">Note :</label>
+        <input value="${(v.note||'').replace(/"/g,'&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Ajouter une note…" style="width:100%;font-size:11px;padding:5px 6px;border:1px solid #ccc;border-radius:3px;box-sizing:border-box;">
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button onclick="showHexDiff(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">🔍 Comparer</button>
+        <button onclick="redownloadHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">⬇️ Télécharger</button>
+        <button onclick="scanHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">🛡️ Scanner</button>
+        <button onclick="deleteHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;background:#ffe0e0;border:1px solid #d99;border-radius:4px;color:#c00;">🗑️ Supprimer</button>
       </div>
     </div>`;
   });
@@ -2400,6 +2410,8 @@ function exportHexVariantsJSON(){
       nom:v.name,strategie:HEX_STRAT_LABELS[v.strategy],
       sha256:v.hash,octetsModifies:v.offsets.length,
       entropie:v.entropy,peValide:v.pe,
+      blocs:v.blocks,
+      vtDetections:v.vtTotal!==undefined?`${v.vtDetections}/${v.vtTotal}`:"non scanné",
       premierOffset:`0x${v.offsets[0].toString(16).toUpperCase()}`,
       dernierOffset:`0x${v.offsets[v.offsets.length-1].toString(16).toUpperCase()}`,
       note:v.note,date:v.date,
@@ -2439,8 +2451,33 @@ function redownloadHexVariant(i){
 }
 async function scanHexVariant(i){
   const v=hexVariants[i];
-  const f=new File([new Uint8Array(v.bytes)],v.name,{type:"application/octet-stream"});
-  doScan(f,v.name);
+  if(!v.bytes||v.bytes.length===0){
+    alert("Pour scanner cette variante, recharge d'abord le fichier original dans l'éditeur Hex.");
+    return;
+  }
+  // Reconvertir proprement en Uint8Array (v.bytes peut être un Array après rechargement)
+  const bytes = v.bytes instanceof Uint8Array ? v.bytes : new Uint8Array(v.bytes);
+  if(bytes.length < 64){
+    alert("Fichier variante incomplet. Recharge le fichier original d'abord.");
+    return;
+  }
+  switchTab('vt');
+  try{
+    const result = await scanBytes(bytes, v.name);
+    if(result && result.stats){
+      hexVariants[i].vtDetections=result.stats.malicious;
+      hexVariants[i].vtTotal=result.stats.total;
+      hexVariants[i].vtSuspicious=result.stats.suspicious;
+      saveHexVariants();
+      renderHexVariants();
+      renderResult(result);
+      log(`Résultat VT : ${v.name} → ${result.stats.malicious}/${result.stats.total}`);
+    }
+  }catch(e){
+    log(`Erreur scan ${v.name} : ${e.message}`);
+    $("statusBar").textContent="Erreur";
+    alert("Échec du scan : "+e.message);
+  }
 }
 
 $("hexApplyBtn").addEventListener("click",()=>{
