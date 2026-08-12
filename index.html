@@ -529,12 +529,20 @@
                 <option value="decrement">Décrément (-1)</option>
                 <option value="invert">Inversion bits (NOT)</option>
                 <option value="xor">XOR (clé)</option>
+                <option value="addconst">Add constante (clé)</option>
+                <option value="subconst">Sub constante (clé)</option>
+              </optgroup>
+              <optgroup label="── Rotation de bits ──">
+                <option value="rol">ROL — rotation gauche</option>
+                <option value="ror">ROR — rotation droite</option>
+                <option value="swapnib">Swap nibbles</option>
               </optgroup>
               <optgroup label="── Génératif ──">
                 <option value="random">Aléatoire</option>
                 <option value="pattern">Motif répétitif</option>
                 <option value="shuffle">Shuffle</option>
                 <option value="mirror">Miroir</option>
+                <option value="seq">Séquence 00 01 02…</option>
               </optgroup>
               <optgroup label="── Avancé ──">
                 <option value="entropy">Entropie contrôlée</option>
@@ -547,8 +555,8 @@
             <input type="text" id="hexStratValue" placeholder="90 CC DE AD" style="width:130px;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;font-family:monospace;" />
           </div>
           <div id="hexXorWrap" class="hidden">
-            <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Clé XOR</label>
-            <input type="text" id="hexXorKey" maxlength="2" placeholder="FF" style="width:55px;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;font-family:monospace;" />
+            <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Clé (hex, ex: FF)</label>
+            <input type="text" id="hexXorKey" maxlength="2" placeholder="FF" style="width:70px;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;font-family:monospace;box-sizing:border-box;" />
           </div>
           <button class="primary" id="hexCreateVariant" style="width:100%;padding:12px;box-sizing:border-box;font-size:14px;font-weight:700;background:linear-gradient(180deg,#5b9bd5,#3a7bc0);color:#fff;border:1px solid #2d6aad;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.15);cursor:pointer;" disabled>⚗️ Créer variante</button>
         </div>
@@ -1952,6 +1960,12 @@ function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
       case "random":result[o]=Math.floor(Math.random()*256);break;
       case "xor":result[o]=bytes[o]^xk;break;
       case "pattern":case "custom":result[o]=pattern[idx%pattern.length];break;
+      case "rol":result[o]=((bytes[o]<<1)|(bytes[o]>>7))&0xFF;break; // rotation gauche 1 bit
+      case "ror":result[o]=((bytes[o]>>1)|(bytes[o]<<7))&0xFF;break; // rotation droite 1 bit
+      case "swapnib":result[o]=((bytes[o]<<4)|(bytes[o]>>4))&0xFF;break; // échange nibbles
+      case "addconst":result[o]=(bytes[o]+xk)&0xFF;break; // ajoute une constante
+      case "subconst":result[o]=(bytes[o]-xk+256)&0xFF;break; // soustrait une constante
+      case "seq":result[o]=idx&0xFF;break; // séquence 00 01 02 03…
     }
   });
   return result;
@@ -1959,7 +1973,8 @@ function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
 
 const HEX_STRAT_LABELS={nop:"NOP",zero:"Zéros",ff:"0xFF",int3:"INT3",custom:"Custom",
   increment:"Incrément",decrement:"Décrément",invert:"NOT",xor:"XOR",random:"Aléatoire",
-  pattern:"Motif",shuffle:"Shuffle",mirror:"Miroir",entropy:"Entropie"};
+  pattern:"Motif",shuffle:"Shuffle",mirror:"Miroir",entropy:"Entropie",
+  rol:"ROL",ror:"ROR",swapnib:"Swap nibbles",addconst:"Add const",subconst:"Sub const",seq:"Séquence"};
 
 const HEX_STRAT_DESC={
   nop:"Instruction neutre x86 — la plus sûre pour le code",
@@ -1976,6 +1991,12 @@ const HEX_STRAT_DESC={
   shuffle:"Mélange l'ordre des octets",
   mirror:"Inverse l'ordre — dernier ↔ premier",
   entropy:"Génère des octets à entropie élevée",
+  rol:"Rotation gauche 1 bit — décale les bits vers la gauche",
+  ror:"Rotation droite 1 bit — décale les bits vers la droite",
+  swapnib:"Échange les demi-octets — 0x4A → 0xA4",
+  addconst:"Ajoute la clé (champ ci-contre) à chaque octet",
+  subconst:"Soustrait la clé (champ ci-contre) à chaque octet",
+  seq:"Séquence croissante 00 01 02 03 04…",
 };
 
 function updateStratDesc(){
@@ -2207,7 +2228,7 @@ $("hexSelClear").addEventListener("click",()=>{
 $("hexStrategy").addEventListener("change",()=>{
   const s=$("hexStrategy").value;
   $("hexCustomWrap").classList.toggle("hidden",!(s==="custom"||s==="pattern"));
-  $("hexXorWrap").classList.toggle("hidden",s!=="xor");
+  $("hexXorWrap").classList.toggle("hidden",!(s==="xor"||s==="addconst"||s==="subconst"));
   updateStratDesc();
 });
 updateStratDesc();
