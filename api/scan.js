@@ -57,6 +57,7 @@ module.exports = async (req, res) => {
     return res.json({ done: false, analysisId: uploadData.data.id, hash, filename: name, size });
   } catch (err) {
     console.error("scan error:", err);
+    if (err.rateLimited) return res.status(429).json({ error: err.message });
     return res.status(500).json({ error: err.message || "Erreur inconnue" });
   }
 };
