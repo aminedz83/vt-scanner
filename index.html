@@ -51,6 +51,8 @@
   .hex-cell.pe-field-hl{background:#d4f0d4;outline:1px solid #5a9b5a;}
   .hex-cell.selected.pe-field-hl{background:#4a90d9;color:#fff;}
   .hex-row-sel{background:#dbe9ff !important;}
+  .hex-row-section{background:#fff4d6;}
+  .hex-row-section.hex-row-sel{background:#dbe9ff !important;}
   .hex-linecheck{margin-right:4px;vertical-align:middle;cursor:pointer;}
   .hex-addr.clickable{cursor:pointer;}
   .hex-block-btn{padding:5px 12px;background:linear-gradient(180deg,#fdfdfd,#e8e8e8);border:1px solid var(--win-border);color:#444;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;font-weight:600;transition:all .1s;min-width:38px;}
@@ -1664,6 +1666,7 @@ $("hexFileInput").addEventListener("change",()=>{
     hexPage=0;
     hexSelectedRows.clear();
     hexVariants=[];
+    hexSectionRange=null;
     detectHexPE();
     renderHex();
     renderHexSectionMap();
@@ -1751,6 +1754,7 @@ const HEX_PAGE_ROWS=512, HEX_COLS=16;
 let hexSelectMode=false;
 let hexSelectedRows=new Set(); // offsets de début de ligne sélectionnés
 let hexVariants=[];
+let hexSectionRange=null; // {start,end} de la section actuellement mise en évidence
 
 function renderHex(){
   const b=hexBytes,COLS=HEX_COLS,pageBytes=HEX_PAGE_ROWS*COLS;
@@ -1762,6 +1766,7 @@ function renderHex(){
   for(let off=startByte;off<endByte;off+=COLS){
     const addr=off.toString(16).toUpperCase().padStart(8,"0");
     const rowSel=hexSelectedRows.has(off);
+    const inSection=hexSectionRange && off>=hexSectionRange.start && off<hexSectionRange.end;
     let hex="",asc="";
     for(let c=0;c<COLS;c++){
       const o=off+c;
@@ -1773,7 +1778,8 @@ function renderHex(){
       asc+=(v>=32&&v<127)?String.fromCharCode(v):".";
     }
     const check=hexSelectMode?`<input type="checkbox" class="hex-linecheck" data-row="${off}" ${rowSel?'checked':''}>`:'';
-    html+=`<tr class="${rowSel?'hex-row-sel':''}"><td class="hex-addr">${check}${addr}</td>${hex}<td class="hex-ascii">${asc}</td></tr>`;
+    const rowClasses=[rowSel?'hex-row-sel':'',inSection?'hex-row-section':''].filter(Boolean).join(' ');
+    html+=`<tr class="${rowClasses}"><td class="hex-addr">${check}${addr}</td>${hex}<td class="hex-ascii">${asc}</td></tr>`;
   }
   $("hexTable").innerHTML=html;
   $("hexTable").querySelectorAll(".hex-cell").forEach(cell=>{
@@ -2031,17 +2037,21 @@ function renderHexSectionMap(){
       secOff+=40;
     }
     if(sections.length===0){box.classList.add("hidden");return;}
-    // Boutons cliquables : header + chaque section, colorés par risque
-    let html=`<button class="hex-block-btn sec-risk-med" data-secoff="0" title="En-tête du fichier — modifiable avec précaution">📄 Header</button>`;
+    // Header : de 0 jusqu'au début de la première section
+    const headerEnd=sections[0].rawOff;
+    let html=`<button class="hex-block-btn sec-risk-med" data-secoff="0" data-secend="${headerEnd}" title="En-tête du fichier — modifiable avec précaution">📄 Header</button>`;
     sections.forEach(s=>{
       const sizeKb=(s.rawSize/1024).toFixed(1);
       const risk=sectionRisk(s.name);
-      html+=`<button class="hex-block-btn sec-risk-${risk.level}" data-secoff="${s.rawOff}" title="${s.name} — ${risk.tip} · 0x${s.rawOff.toString(16).toUpperCase()}, ${sizeKb} Ko">${s.name}</button>`;
+      html+=`<button class="hex-block-btn sec-risk-${risk.level}" data-secoff="${s.rawOff}" data-secend="${s.rawOff+s.rawSize}" title="${s.name} — ${risk.tip} · 0x${s.rawOff.toString(16).toUpperCase()}, ${sizeKb} Ko">${s.name}</button>`;
     });
     btns.innerHTML=html;
     btns.querySelectorAll("[data-secoff]").forEach(b=>{
       b.addEventListener("click",()=>{
         const off=parseInt(b.dataset.secoff);
+        const end=parseInt(b.dataset.secend);
+        // Mémoriser la zone de section pour la surbrillance
+        hexSectionRange={start:off,end:end};
         const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
         hexPage=Math.floor(off/pageBytes);
         renderHex();
