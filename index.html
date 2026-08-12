@@ -2462,6 +2462,8 @@ async function scanHexVariant(i){
     return;
   }
   switchTab('vt');
+  $("scanBtn").disabled=true;
+  startTimer();
   try{
     const result = await scanBytes(bytes, v.name);
     if(result && result.stats){
@@ -2471,12 +2473,16 @@ async function scanHexVariant(i){
       saveHexVariants();
       renderHexVariants();
       renderResult(result);
+      $("statusBar").textContent="Prêt";
       log(`Résultat VT : ${v.name} → ${result.stats.malicious}/${result.stats.total}`);
     }
   }catch(e){
     log(`Erreur scan ${v.name} : ${e.message}`);
     $("statusBar").textContent="Erreur";
     alert("Échec du scan : "+e.message);
+  }finally{
+    stopTimer();
+    $("scanBtn").disabled=false;
   }
 }
 
