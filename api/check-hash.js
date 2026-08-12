@@ -18,6 +18,7 @@ module.exports = async (req, res) => {
     return res.json({ found: true, ...formatResult(data, filename || "fichier", Number(size) || 0, hash, true) });
   } catch (err) {
     console.error(err);
+    if (err.rateLimited) return res.status(429).json({ error: err.message });
     res.status(500).json({ error: err.message });
   }
 };
