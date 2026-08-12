@@ -2312,27 +2312,30 @@ function renderHexVariants(){
       <button onclick="exportHexVariantsJSON()" style="font-size:10px;padding:3px 8px;">⬇️ Export JSON</button>
       <button onclick="clearAllHexVariants()" style="font-size:10px;padding:3px 8px;color:#c00;">🗑️ Tout effacer</button>
     </div></div>`;
-  html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:600px;">`;
-  html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Blocs</th><th style="padding:4px 6px;">Stratégie</th><th style="padding:4px 6px;">Octets</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">SHA-256</th><th style="padding:4px 6px;">PE</th><th style="padding:4px 6px;">Note</th><th></th></tr>`;
+  html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">`;
   hexVariants.forEach((v,i)=>{
-    html+=`<tr style="border-bottom:1px solid #ddd;background:${i%2?'#f5f3ee':'#fff'};">
-      <td style="padding:4px 6px;">${v.name}</td>
-      <td style="padding:4px 6px;text-align:center;font-family:monospace;color:#0033cc;font-size:10px;" title="${v.blocks||''}">${v.blocks||'—'}</td>
-      <td style="padding:4px 6px;text-align:center;">${HEX_STRAT_LABELS[v.strategy]||v.strategy}</td>
-      <td style="padding:4px 6px;text-align:center;">${v.offsets.length}</td>
-      <td style="padding:4px 6px;text-align:center;color:#0a7;">${v.entropy}</td>
-      <td style="padding:4px 6px;color:#0033cc;" title="${v.hash}">${v.hash.substring(0,10)}…</td>
-      <td style="padding:4px 6px;text-align:center;">${v.pe?'✅':'❌'}</td>
-      <td style="padding:4px 6px;"><input value="${(v.note||'').replace(/"/g,'&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="…" style="width:70px;font-size:10px;padding:2px 4px;border:1px solid #ccc;border-radius:2px;"></td>
-      <td style="padding:4px 6px;white-space:nowrap;">
-        <button onclick="showHexDiff(${i})" style="font-size:10px;padding:2px 6px;" title="Comparer">🔍</button>
-        <button onclick="redownloadHexVariant(${i})" style="font-size:10px;padding:2px 6px;" title="Télécharger">⬇️</button>
-        <button onclick="scanHexVariant(${i})" style="font-size:10px;padding:2px 6px;" title="Scanner">🛡️</button>
-        <button onclick="deleteHexVariant(${i})" style="font-size:10px;padding:2px 6px;color:#c00;" title="Supprimer">🗑️</button>
-      </td>
-    </tr>`;
+    html+=`<div style="border:1px solid #c8c8c8;border-radius:6px;background:${i%2?'#f9f8f4':'#fff'};padding:8px;box-sizing:border-box;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+        <span style="font-weight:700;color:#0033cc;font-size:12px;">${v.name}</span>
+        <span style="font-size:11px;">${v.pe?'✅ PE valide':'❌ PE invalide'}</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:10px;color:#555;margin-bottom:6px;">
+        <span>📦 Blocs : <b style="color:#0033cc;">${v.blocks||'—'}</b></span>
+        <span>🔧 ${HEX_STRAT_LABELS[v.strategy]||v.strategy}</span>
+        <span>${v.offsets.length} octets</span>
+        <span>📊 ${v.entropy}</span>
+        <span title="${v.hash}">🔑 ${v.hash.substring(0,10)}…</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <input value="${(v.note||'').replace(/"/g,'&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Note…" style="flex:1;min-width:80px;font-size:11px;padding:4px 6px;border:1px solid #ccc;border-radius:3px;box-sizing:border-box;">
+        <button onclick="showHexDiff(${i})" style="font-size:13px;padding:5px 9px;" title="Comparer">🔍</button>
+        <button onclick="redownloadHexVariant(${i})" style="font-size:13px;padding:5px 9px;" title="Télécharger">⬇️</button>
+        <button onclick="scanHexVariant(${i})" style="font-size:13px;padding:5px 9px;" title="Scanner VT">🛡️</button>
+        <button onclick="deleteHexVariant(${i})" style="font-size:13px;padding:5px 9px;background:#ffe0e0;border:1px solid #d99;border-radius:4px;" title="Supprimer cette variante">🗑️</button>
+      </div>
+    </div>`;
   });
-  html+=`</table></div>`;
+  html+=`</div>`;
   $("hexVariantList").innerHTML=html;
 }
 
