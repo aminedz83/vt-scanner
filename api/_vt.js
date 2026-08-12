@@ -7,6 +7,11 @@ async function vtFetch(path, options = {}) {
     ...options,
     headers: { "x-apikey": VT_API_KEY, ...(options.headers || {}) },
   });
+  if (res.status === 429) {
+    const err = new Error("Limite VirusTotal atteinte (4 requêtes/minute). Patiente environ 1 minute.");
+    err.rateLimited = true;
+    throw err;
+  }
   if (!res.ok && res.status !== 404) {
     const text = await res.text();
     throw new Error(`VirusTotal ${res.status}: ${text}`);
