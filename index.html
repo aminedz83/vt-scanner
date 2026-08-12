@@ -2245,21 +2245,59 @@ $("hexCreateVariant").addEventListener("click",async()=>{
   showHexDiff(hexVariants.length-1);
 });
 
-// Persistance localStorage
+// Persistance localStorage — stocke seulement les modifications, pas le fichier entier
 function saveHexVariants(){
   try{
-    // On stocke sans les bytes complets si trop gros (garde metadata + bytes)
-    localStorage.setItem("hexVariants", JSON.stringify(hexVariants));
+    // Version légère : pour chaque variante, on garde les métadonnées + la liste des octets modifiés
+    const light = hexVariants.map(v=>{
+      // Calcule les changements (offset → nouvelle valeur) au lieu de tout le fichier
+      const changes=[];
+      if(v.bytes && hexOrigBytes){
+        const vb = v.bytes;
+        for(let i=0;i<vb.length;i++){
+          if(vb[i]!==hexOrigBytes[i]) changes.push([i, vb[i]]);
+        }
+      }
+      return {
+        id:v.id, name:v.name, hash:v.hash, origHash:v.origHash,
+        pe:v.pe, strategy:v.strategy, offsets:v.offsets, entropy:v.entropy,
+        blocks:v.blocks, blockSize:v.blockSize, note:v.note, date:v.date,
+        fileName:v.fileName, changes, // seulement les changements, minuscule
+        origLength: v.bytes ? v.bytes.length : 0,
+      };
+    });
+    localStorage.setItem("hexVariantsLight", JSON.stringify(light));
     localStorage.setItem("hexVariantCounter", String(hexVariantCounter));
-  }catch(e){ log("⚠️ Sauvegarde variantes impossible (stockage plein)"); }
+  }catch(e){
+    log("⚠️ Sauvegarde impossible : "+e.message);
+  }
 }
 
 function loadHexVariants(){
   try{
-    const saved=localStorage.getItem("hexVariants");
+    const saved=localStorage.getItem("hexVariantsLight");
     if(saved){
-      hexVariants=JSON.parse(saved);
-      // Reconvertir les bytes (stockés en array) en Uint8Array à l'usage
+      const light=JSON.parse(saved);
+      hexVariants=light.map(v=>{
+        // Reconstruit les bytes à partir de l'original + les changements
+        let bytes=null;
+        if(hexOrigBytes && v.origLength){
+          bytes=new Uint8Array(hexOrigBytes.slice(0,v.origLength));
+          if(v.changes) v.changes.forEach(([off,val])=>{ if(off<bytes.length) bytes[off]=val; });
+          bytes=Array.from(bytes);
+        }
+        // Recalcule les diffs pour l'affichage
+        const diffs=[];
+        if(bytes && hexOrigBytes){
+          for(let i=0;i<bytes.length;i++){
+            if(bytes[i]!==hexOrigBytes[i]){
+              const start=i;while(i<bytes.length&&bytes[i]!==hexOrigBytes[i])i++;
+              diffs.push({start,end:i-1,count:i-start});
+            }
+          }
+        }
+        return {...v, bytes:bytes||[], diffs};
+      });
       hexVariantCounter=parseInt(localStorage.getItem("hexVariantCounter"))||hexVariants.length;
       renderHexVariants();
     }
@@ -2388,7 +2426,11 @@ function downloadBytes(bytes, filename){
 
 function redownloadHexVariant(i){
   const v=hexVariants[i];
-  if(!v||!v.bytes){alert("Données de la variante introuvables.");return;}
+  if(!v){alert("Variante introuvable.");return;}
+  if(!v.bytes||v.bytes.length===0){
+    alert("Pour re-télécharger cette variante, recharge d'abord le fichier original dans l'éditeur Hex.");
+    return;
+  }
   const ok=downloadBytes(v.bytes, v.name);
   if(ok) log(`Variante ${v.name} téléchargée`);
 }
@@ -2746,6 +2788,7 @@ $("hxStrReplace").addEventListener("click",()=>{
 });
 
 // Charger les variantes sauvegardées au démarrage
+try{ localStorage.removeItem("hexVariants"); }catch(e){} // nettoie l'ancienne clé lourde
 loadHexVariants();
 </script>
 </body>
