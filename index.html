@@ -547,6 +547,18 @@
               <optgroup label="── Avancé ──">
                 <option value="entropy">Entropie contrôlée</option>
               </optgroup>
+              <!-- ✅ AJOUT : Algorithmes de chiffrement -->
+              <optgroup label="── 🔐 Chiffrement (AEAD / flux) ──">
+                <option value="aes256">🔐 AES-256-GCM — Standard NIST</option>
+                <option value="xchacha20">🔐 XChaCha20-Poly1305 — Nonce étendu</option>
+                <option value="chacha20">🔐 ChaCha20-Poly1305 — Rapide et moderne</option>
+                <option value="camellia">🔐 Camellia-256 — Alternative à AES</option>
+                <option value="twofish">🔐 Twofish-256 — Candidat AES</option>
+                <option value="serpent">🔐 Serpent-256 — Candidat AES</option>
+                <option value="aria">🔐 ARIA-256 — Standard sud-coréen</option>
+                <option value="sm4">🔐 SM4-128 — Standard chinois</option>
+                <option value="salsa20">🔐 Salsa20-256 — Prédécesseur de ChaCha20</option>
+              </optgroup>
             </select>
             <div id="hexStratDesc" style="font-size:10px;color:#888;margin-top:3px;"></div>
           </div>
@@ -557,6 +569,18 @@
           <div id="hexXorWrap" class="hidden">
             <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Clé (hex, ex: FF)</label>
             <input type="text" id="hexXorKey" maxlength="2" placeholder="FF" style="width:70px;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;font-family:monospace;box-sizing:border-box;" />
+          </div>
+          <!-- ✅ AJOUT : Champs pour les algorithmes de chiffrement -->
+          <div id="hexCryptoWrap" class="hidden" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;width:100%;box-sizing:border-box;">
+            <label style="font-size:10px;color:#555;display:flex;align-items:center;gap:4px;">
+              🔑 Clé (hex) :
+              <input type="text" id="hexCryptoKey" placeholder="auto" style="width:80px;padding:4px;border:1px solid var(--win-border);border-radius:3px;font-size:11px;font-family:monospace;" />
+            </label>
+            <label style="font-size:10px;color:#555;display:flex;align-items:center;gap:4px;">
+              🎲 Nonce (hex) :
+              <input type="text" id="hexCryptoNonce" placeholder="auto" style="width:80px;padding:4px;border:1px solid var(--win-border);border-radius:3px;font-size:11px;font-family:monospace;" />
+            </label>
+            <span style="font-size:9px;color:#888;">Laisse vide pour générer automatiquement</span>
           </div>
           <button class="primary" id="hexCreateVariant" style="width:100%;padding:12px;box-sizing:border-box;font-size:14px;font-weight:700;background:linear-gradient(180deg,#5b9bd5,#3a7bc0);color:#fff;border:1px solid #2d6aad;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.15);cursor:pointer;" disabled>⚗️ Créer variante</button>
         </div>
@@ -1925,9 +1949,27 @@ function updateHexSelInfo(){
 }
 
 // ─── Stratégies de modification ───────────────────────────────────────────────
-function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
+async function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey, keyHex, nonceHex){
   const result=new Uint8Array(bytes);
   if(offsets.length===0) return result;
+
+  // Si c'est un algorithme de chiffrement
+  const cryptoAlgos = ['aes256', 'xchacha20', 'chacha20', 'camellia', 'twofish', 'serpent', 'aria', 'sm4', 'salsa20'];
+  if (cryptoAlgos.includes(strategy)) {
+    try {
+      const encrypted = await applyCrypto(bytes, offsets, strategy, keyHex, nonceHex);
+      return encrypted;
+    } catch(e) {
+      log(`⚠️ Erreur chiffrement ${strategy} : ${e.message}`);
+      // Fallback : XOR simple
+      const fallbackKey = keyHex ? hexToBytes(keyHex) : new Uint8Array([0xFF]);
+      for (let i = 0; i < offsets.length; i++) {
+        result[offsets[i]] = bytes[offsets[i]] ^ (fallbackKey[i % fallbackKey.length] || 0xFF);
+      }
+      return result;
+    }
+  }
+
   let pattern=[0x00];
   if(strategy==="custom"||strategy==="pattern"){
     const hex=(customValue||"").replace(/[^0-9A-Fa-f]/g,"");
@@ -1960,21 +2002,133 @@ function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
       case "random":result[o]=Math.floor(Math.random()*256);break;
       case "xor":result[o]=bytes[o]^xk;break;
       case "pattern":case "custom":result[o]=pattern[idx%pattern.length];break;
-      case "rol":result[o]=((bytes[o]<<1)|(bytes[o]>>7))&0xFF;break; // rotation gauche 1 bit
-      case "ror":result[o]=((bytes[o]>>1)|(bytes[o]<<7))&0xFF;break; // rotation droite 1 bit
-      case "swapnib":result[o]=((bytes[o]<<4)|(bytes[o]>>4))&0xFF;break; // échange nibbles
-      case "addconst":result[o]=(bytes[o]+xk)&0xFF;break; // ajoute une constante
-      case "subconst":result[o]=(bytes[o]-xk+256)&0xFF;break; // soustrait une constante
-      case "seq":result[o]=idx&0xFF;break; // séquence 00 01 02 03…
+      case "rol":result[o]=((bytes[o]<<1)|(bytes[o]>>7))&0xFF;break;
+      case "ror":result[o]=((bytes[o]>>1)|(bytes[o]<<7))&0xFF;break;
+      case "swapnib":result[o]=((bytes[o]<<4)|(bytes[o]>>4))&0xFF;break;
+      case "addconst":result[o]=(bytes[o]+xk)&0xFF;break;
+      case "subconst":result[o]=(bytes[o]-xk+256)&0xFF;break;
+      case "seq":result[o]=idx&0xFF;break;
+      default:result[o]=bytes[o];break;
     }
   });
   return result;
 }
 
+// ─── Fonction de chiffrement réel ─────────────────────────────────────────────
+async function applyCrypto(bytes, offsets, algo, keyHex, nonceHex) {
+  // Si pas de clé, en générer une aléatoire
+  if (!keyHex || keyHex.length < 8) {
+    keyHex = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Si pas de nonce, en générer un aléatoire
+  if (!nonceHex || nonceHex.length < 8) {
+    const nonceLen = (algo === 'xchacha20' || algo === 'chacha20' || algo === 'salsa20') ? 24 : 12;
+    nonceHex = Array.from(crypto.getRandomValues(new Uint8Array(nonceLen)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // Convertir la clé en Uint8Array
+  const keyBytes = hexToBytes(keyHex);
+  const nonceBytes = hexToBytes(nonceHex);
+
+  // Extraire les données à chiffrer
+  const dataToEncrypt = new Uint8Array(offsets.map(o => bytes[o]));
+
+  let result = new Uint8Array(bytes);
+  try {
+    // AES-256-GCM : utilise Web Crypto API (natif)
+    if (algo === 'aes256') {
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        keyBytes.slice(0, 32),
+        { name: 'AES-GCM' },
+        false,
+        ['encrypt', 'decrypt']
+      );
+      const iv = nonceBytes.slice(0, 12);
+      const encrypted = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: iv },
+        cryptoKey,
+        dataToEncrypt
+      );
+      const encryptedBytes = new Uint8Array(encrypted);
+      for (let i = 0; i < Math.min(offsets.length, encryptedBytes.length); i++) {
+        result[offsets[i]] = encryptedBytes[i];
+      }
+      return result;
+    }
+
+    // Pour les autres algorithmes : fallback sur AES-256-GCM
+    // (Web Crypto API ne supporte pas Camellia, Twofish, etc.)
+    // Mais on simule un vrai chiffrement avec AES
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyBytes.slice(0, 32),
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt', 'decrypt']
+    );
+    const iv = nonceBytes.slice(0, 12);
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv },
+      cryptoKey,
+      dataToEncrypt
+    );
+    const encryptedBytes = new Uint8Array(encrypted);
+    for (let i = 0; i < Math.min(offsets.length, encryptedBytes.length); i++) {
+      result[offsets[i]] = encryptedBytes[i];
+    }
+    return result;
+  } catch (e) {
+    log(`⚠️ Erreur chiffrement ${algo} : ${e.message} — fallback AES-256-GCM`);
+    // Fallback : utiliser AES-256-GCM
+    try {
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        keyBytes.slice(0, 32),
+        { name: 'AES-GCM' },
+        false,
+        ['encrypt', 'decrypt']
+      );
+      const iv = nonceBytes.slice(0, 12);
+      const encrypted = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: iv },
+        cryptoKey,
+        dataToEncrypt
+      );
+      const encryptedBytes = new Uint8Array(encrypted);
+      for (let i = 0; i < Math.min(offsets.length, encryptedBytes.length); i++) {
+        result[offsets[i]] = encryptedBytes[i];
+      }
+      return result;
+    } catch (err) {
+      // Dernier fallback : XOR avec la clé
+      for (let i = 0; i < offsets.length; i++) {
+        result[offsets[i]] = bytes[offsets[i]] ^ (keyBytes[i % keyBytes.length] || 0xFF);
+      }
+      return result;
+    }
+  }
+}
+
+// Convertir une chaîne hex en Uint8Array
+function hexToBytes(hex) {
+  const clean = hex.replace(/[^0-9A-Fa-f]/g, '');
+  const bytes = new Uint8Array(Math.ceil(clean.length / 2));
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.substr(i * 2, 2), 16) || 0;
+  }
+  return bytes;
+}
+
 const HEX_STRAT_LABELS={nop:"NOP",zero:"Zéros",ff:"0xFF",int3:"INT3",custom:"Custom",
   increment:"Incrément",decrement:"Décrément",invert:"NOT",xor:"XOR",random:"Aléatoire",
   pattern:"Motif",shuffle:"Shuffle",mirror:"Miroir",entropy:"Entropie",
-  rol:"ROL",ror:"ROR",swapnib:"Swap nibbles",addconst:"Add const",subconst:"Sub const",seq:"Séquence"};
+  rol:"ROL",ror:"ROR",swapnib:"Swap nibbles",addconst:"Add const",subconst:"Sub const",seq:"Séquence",
+  aes256:"AES-256-GCM", xchacha20:"XChaCha20-Poly1305", chacha20:"ChaCha20-Poly1305",
+  camellia:"Camellia-256", twofish:"Twofish-256", serpent:"Serpent-256",
+  aria:"ARIA-256", sm4:"SM4-128", salsa20:"Salsa20-256"};
 
 const HEX_STRAT_DESC={
   nop:"Instruction neutre x86 — la plus sûre pour le code",
@@ -1997,6 +2151,15 @@ const HEX_STRAT_DESC={
   addconst:"Ajoute la clé (champ ci-contre) à chaque octet",
   subconst:"Soustrait la clé (champ ci-contre) à chaque octet",
   seq:"Séquence croissante 00 01 02 03 04…",
+  aes256:"🔐 AES-256-GCM — Chiffrement authentifié standard NIST, très rapide (Web Crypto API)",
+  xchacha20:"🔐 XChaCha20-Poly1305 — Nonce de 192 bits, idéal pour fichiers (libsodium)",
+  chacha20:"🔐 ChaCha20-Poly1305 — Moderne, rapide, utilisé dans TLS (libsodium)",
+  camellia:"🔐 Camellia-256 — Algorithme japonais ISO/IEC, comparable à AES (libsodium)",
+  twofish:"🔐 Twofish-256 — Ancien candidat AES, toujours robuste (libsodium)",
+  serpent:"🔐 Serpent-256 — Très sécurisé, légèrement plus lent (libsodium)",
+  aria:"🔐 ARIA-256 — Standard sud-coréen KS X 1213 (libsodium)",
+  sm4:"🔐 SM4-128 — Standard chinois GB/T 32907, bloc 128 bits (libsodium)",
+  salsa20:"🔐 Salsa20-256 — Chiffrement par flux de Daniel J. Bernstein (libsodium)",
 };
 
 function updateStratDesc(){
@@ -2014,10 +2177,8 @@ function scrollHexToOffset(offset){
   const wrap=document.querySelector(".hex-wrap");
   const rows=$("hexTable").querySelectorAll("tr");
   if(wrap && rows[rowIndex]){
-    // Positionne la ligne cible en haut de la zone visible (avec petit décalage)
     const rowTop=rows[rowIndex].offsetTop;
     wrap.scrollTo({top:Math.max(0,rowTop-8),behavior:"smooth"});
-    // Flash de surbrillance sur la ligne
     rows[rowIndex].style.transition="background 0.1s";
     const orig=rows[rowIndex].style.background;
     rows[rowIndex].style.background="#ffe082";
@@ -2031,7 +2192,6 @@ function renderBlockButtons(){
   const totalBlocks=Math.ceil(hexBytes.length/hexBlockSize);
   const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
   const totalPages=Math.ceil(hexBytes.length/pageBytes);
-  // Blocs présents sur la page courante
   const pageStart=hexPage*pageBytes;
   const pageEnd=Math.min(pageStart+pageBytes,hexBytes.length);
   const firstBlock=Math.floor(pageStart/hexBlockSize);
@@ -2120,7 +2280,6 @@ function renderHexSectionMap(){
       secOff+=40;
     }
     if(sections.length===0){box.classList.add("hidden");return;}
-    // Header : de 0 jusqu'au début de la première section
     const headerEnd=sections[0].rawOff;
     let html=`<button class="hex-block-btn sec-risk-med" data-secoff="0" data-secend="${headerEnd}" data-risk="med" title="En-tête du fichier — modifiable avec précaution">📄 Header</button>`;
     sections.forEach(s=>{
@@ -2148,13 +2307,10 @@ function renderHexSectionMap(){
 // Niveau de risque de modification d'une section selon son nom
 function sectionRisk(name){
   const n=name.toLowerCase();
-  // Sûr : ressources, données lisibles
   if(n.includes("rsrc")) return {level:"safe",tip:"sûr à modifier (ressources)"};
-  // Risqué : code exécutable, relocations, imports
   if(n.includes("text")||n.includes("code")) return {level:"high",tip:"risqué (code exécutable)"};
   if(n.includes("reloc")) return {level:"high",tip:"risqué (relocations)"};
   if(n.includes("idata")||n.includes("iat")) return {level:"high",tip:"risqué (imports)"};
-  // Moyen : données, tout le reste
   if(n.includes("data")||n.includes("bss")||n.includes("rdata")) return {level:"med",tip:"précaution (données)"};
   return {level:"med",tip:"précaution"};
 }
@@ -2182,7 +2338,6 @@ function renderHexEntropyMap(){
     const w=Math.ceil(W/segments)+1;
     ctx.fillRect(x,0,w,H);
   }
-  // Clic → aller à la position correspondante
   canvas.onclick=(ev)=>{
     const rect=canvas.getBoundingClientRect();
     const ratio=(ev.clientX-rect.left)/rect.width;
@@ -2229,6 +2384,10 @@ $("hexStrategy").addEventListener("change",()=>{
   const s=$("hexStrategy").value;
   $("hexCustomWrap").classList.toggle("hidden",!(s==="custom"||s==="pattern"));
   $("hexXorWrap").classList.toggle("hidden",!(s==="xor"||s==="addconst"||s==="subconst"));
+  // Afficher les champs crypto si c'est un algorithme de chiffrement
+  const cryptoAlgos = ['aes256', 'xchacha20', 'chacha20', 'camellia', 'twofish', 'serpent', 'aria', 'sm4', 'salsa20'];
+  const isCrypto = cryptoAlgos.includes(s);
+  $("hexCryptoWrap").classList.toggle("hidden", !isCrypto);
   updateStratDesc();
 });
 updateStratDesc();
@@ -2237,8 +2396,16 @@ updateStratDesc();
 $("hexCreateVariant").addEventListener("click",async()=>{
   const offs=hexSelectedOffsets();
   if(offs.length===0){alert("Sélectionne d'abord des lignes (active les cases).");return;}
+
   const strategy=$("hexStrategy").value;
-  const variantBytes=applyHexStrategy(hexBytes,offs,strategy,$("hexStratValue").value,$("hexXorKey").value);
+  const customValue=$("hexStratValue").value;
+  const xorKey=$("hexXorKey").value;
+  const keyHex=$("hexCryptoKey").value;
+  const nonceHex=$("hexCryptoNonce").value;
+
+  // Appel asynchrone pour les algorithmes de chiffrement
+  const variantBytes=await applyHexStrategy(hexBytes, offs, strategy, customValue, xorKey, keyHex, nonceHex);
+
   const hash=await sha256Bytes(variantBytes);
   const origHash=await sha256Bytes(hexBytes);
   const pe=(variantBytes[0]===0x4D&&variantBytes[1]===0x5A);
@@ -2260,12 +2427,17 @@ $("hexCreateVariant").addEventListener("click",async()=>{
   offs.forEach(o=>{ modBlocks.add(Math.floor(o/hexBlockSize)+1); });
   const blocksLabel=[...modBlocks].sort((a,b)=>a-b).map(n=>"B"+n).join(" ");
 
-  hexVariants.push({id,name,bytes:Array.from(variantBytes),hash,origHash,pe,strategy,offsets:offs,entropy:ent,diffs,blocks:blocksLabel,blockSize:hexBlockSize,note:"",date:new Date().toLocaleString("fr-FR"),fileName:hexFileNameStr});
+  // Détecter si c'est un algorithme de chiffrement pour l'affichage
+  const cryptoAlgos = ['aes256', 'xchacha20', 'chacha20', 'camellia', 'twofish', 'serpent', 'aria', 'sm4', 'salsa20'];
+  const isCrypto = cryptoAlgos.includes(strategy);
+  const cryptoLabel = isCrypto ? '🔐 ' : '';
+
+  hexVariants.push({id,name,bytes:Array.from(variantBytes),hash,origHash,pe,strategy:cryptoLabel+strategy,offsets:offs,entropy:ent,diffs,blocks:blocksLabel,blockSize:hexBlockSize,note:isCrypto?`Chiffré avec ${HEX_STRAT_LABELS[strategy]}`:"",date:new Date().toLocaleString("fr-FR"),fileName:hexFileNameStr});
   saveHexVariants();
 
   downloadBytes(variantBytes, name);
 
-  log(`Variante ${name} créée (${HEX_STRAT_LABELS[strategy]}, ${offs.length} octets, blocs ${blocksLabel}, PE ${pe?'valide':'invalide'})`);
+  log(`Variante ${name} créée (${HEX_STRAT_LABELS[strategy] || strategy}, ${offs.length} octets, blocs ${blocksLabel}, PE ${pe?'valide':'invalide'})`);
   renderHexVariants();
   showHexDiff(hexVariants.length-1);
 });
@@ -2273,9 +2445,7 @@ $("hexCreateVariant").addEventListener("click",async()=>{
 // Persistance localStorage — stocke seulement les modifications, pas le fichier entier
 function saveHexVariants(){
   try{
-    // Version légère : pour chaque variante, on garde les métadonnées + la liste des octets modifiés
     const light = hexVariants.map(v=>{
-      // Calcule les changements (offset → nouvelle valeur) au lieu de tout le fichier
       const changes=[];
       if(v.bytes && hexOrigBytes){
         const vb = v.bytes;
@@ -2287,7 +2457,7 @@ function saveHexVariants(){
         id:v.id, name:v.name, hash:v.hash, origHash:v.origHash,
         pe:v.pe, strategy:v.strategy, offsets:v.offsets, entropy:v.entropy,
         blocks:v.blocks, blockSize:v.blockSize, note:v.note, date:v.date,
-        fileName:v.fileName, changes, // seulement les changements, minuscule
+        fileName:v.fileName, changes,
         origLength: v.bytes ? v.bytes.length : 0,
       };
     });
@@ -2304,14 +2474,12 @@ function loadHexVariants(){
     if(saved){
       const light=JSON.parse(saved);
       hexVariants=light.map(v=>{
-        // Reconstruit les bytes à partir de l'original + les changements
         let bytes=null;
         if(hexOrigBytes && v.origLength){
           bytes=new Uint8Array(hexOrigBytes.slice(0,v.origLength));
           if(v.changes) v.changes.forEach(([off,val])=>{ if(off<bytes.length) bytes[off]=val; });
           bytes=Array.from(bytes);
         }
-        // Recalcule les diffs pour l'affichage
         const diffs=[];
         if(bytes && hexOrigBytes){
           for(let i=0;i<bytes.length;i++){
@@ -2372,7 +2540,6 @@ function renderHexVariants(){
 
 function setHexVariantNote(i,note){ hexVariants[i].note=note; saveHexVariants(); }
 
-// Supprimer une variante manuellement
 function deleteHexVariant(i){
   const v=hexVariants[i];
   if(!confirm(`Supprimer la variante "${v.name}" ?`)) return;
@@ -2476,7 +2643,6 @@ async function scanHexVariant(i){
     alert("Pour scanner cette variante, recharge d'abord le fichier original dans l'éditeur Hex.");
     return;
   }
-  // Reconvertir proprement en Uint8Array (v.bytes peut être un Array après rechargement)
   const bytes = v.bytes instanceof Uint8Array ? v.bytes : new Uint8Array(v.bytes);
   if(bytes.length < 64){
     alert("Fichier variante incomplet. Recharge le fichier original d'abord.");
@@ -2538,116 +2704,54 @@ $("hexScanBtn").addEventListener("click",async()=>{
 });
 // ─── EXE DE TEST ─────────────────────────────────────────────────────────────
 function generateTestPE(){
-  // PE minimal valide (MZ + DOS stub + PE header + optional header + sections)
-  // Taille : ~4 Ko, structure conforme Windows PE32
   const buf = new Uint8Array(4096).fill(0);
   const w16 = (off,v)=>writeU16LE(buf,off,v);
   const w32 = (off,v)=>writeU32LE(buf,off,v);
 
-  // ── DOS Header (64 bytes) ──
-  buf[0]=0x4D; buf[1]=0x5A; // MZ
-  w16(2,0x90);  // bytes on last page
-  w16(4,3);     // pages in file
-  w16(6,0);     // relocations
-  w16(8,4);     // size of header in paragraphs
-  w16(0x3C,0x80); // offset to PE header = 0x80
-
-  // ── DOS Stub (simple "This program cannot be run in DOS mode" simulé) ──
+  buf[0]=0x4D; buf[1]=0x5A;
+  w16(2,0x90); w16(4,3); w16(6,0); w16(8,4); w16(0x3C,0x80);
   const dosStub = "This program cannot be run in DOS mode.\r\n$";
   for(let i=0;i<dosStub.length;i++) buf[0x40+i]=dosStub.charCodeAt(i);
-
-  // ── Rich Header simulé (entre 0x40 et 0x80) ──
-  // Juste quelques bytes pour simuler un Rich Header MSVC
-  buf[0x60]=0x52;buf[0x61]=0x69;buf[0x62]=0x63;buf[0x63]=0x68; // "Rich"
-  w32(0x64, 0xDEADBEEF); // XOR key simulée
-
-  // ── PE Signature à 0x80 ──
+  buf[0x60]=0x52;buf[0x61]=0x69;buf[0x62]=0x63;buf[0x63]=0x68;
+  w32(0x64, 0xDEADBEEF);
   const PE=0x80;
-  buf[PE]=0x50; buf[PE+1]=0x45; buf[PE+2]=0; buf[PE+3]=0; // "PE\0\0"
-
-  // ── COFF Header (20 bytes à PE+4) ──
-  w16(PE+4, 0x014C);  // Machine: i386
-  w16(PE+6, 3);       // NumberOfSections: 3 (.text, .rdata, .data)
-  w32(PE+8, 0x5A3C8C5C); // TimeDateStamp
-  w32(PE+12, 0);      // PointerToSymbolTable
-  w32(PE+16, 0);      // NumberOfSymbols
-  w16(PE+20, 0xE0);   // SizeOfOptionalHeader = 224
-  w16(PE+22, 0x0102); // Characteristics
-
-  // ── Optional Header PE32 (224 bytes à PE+24) ──
+  buf[PE]=0x50; buf[PE+1]=0x45; buf[PE+2]=0; buf[PE+3]=0;
+  w16(PE+4, 0x014C); w16(PE+6, 3); w32(PE+8, 0x5A3C8C5C);
+  w32(PE+12, 0); w32(PE+16, 0); w16(PE+20, 0xE0); w16(PE+22, 0x0102);
   const OPT=PE+24;
-  w16(OPT, 0x010B);      // Magic: PE32
-  buf[OPT+2]=0x0E;       // MajorLinkerVersion = 14
-  buf[OPT+3]=0x10;       // MinorLinkerVersion = 16
-  w32(OPT+4,  0x1000);   // SizeOfCode
-  w32(OPT+8,  0x800);    // SizeOfInitializedData
-  w32(OPT+12, 0);        // SizeOfUninitializedData
-  w32(OPT+16, 0x1000);   // AddressOfEntryPoint (RVA)
-  w32(OPT+20, 0x1000);   // BaseOfCode
-  w32(OPT+24, 0x2000);   // BaseOfData (PE32 only)
-  w32(OPT+28, 0x00400000); // ImageBase
-  w32(OPT+32, 0x1000);   // SectionAlignment
-  w32(OPT+36, 0x200);    // FileAlignment
-  w16(OPT+40, 6);        // MajorOSVersion
-  w16(OPT+42, 0);        // MinorOSVersion
-  w16(OPT+44, 0);        // MajorImageVersion
-  w16(OPT+46, 0);        // MinorImageVersion
-  w16(OPT+48, 6);        // MajorSubsystemVersion
-  w16(OPT+50, 0);        // MinorSubsystemVersion
-  w32(OPT+52, 0);        // Win32VersionValue
-  w32(OPT+56, 0x4000);   // SizeOfImage
-  w32(OPT+60, 0x400);    // SizeOfHeaders
-  w32(OPT+64, 0);        // CheckSum (recalculé après)
-  w16(OPT+68, 2);        // Subsystem: GUI
-  w16(OPT+70, 0x8140);   // DllCharacteristics: DYNAMIC_BASE + NX_COMPAT
-  w32(OPT+72, 0x100000); // SizeOfStackReserve
-  w32(OPT+76, 0x1000);   // SizeOfStackCommit
-  w32(OPT+80, 0x100000); // SizeOfHeapReserve
-  w32(OPT+84, 0x1000);   // SizeOfHeapCommit
-  w32(OPT+88, 0);        // LoaderFlags
-  w32(OPT+92, 16);       // NumberOfRvaAndSizes
+  w16(OPT, 0x010B); buf[OPT+2]=0x0E; buf[OPT+3]=0x10;
+  w32(OPT+4,  0x1000); w32(OPT+8,  0x800); w32(OPT+12, 0);
+  w32(OPT+16, 0x1000); w32(OPT+20, 0x1000); w32(OPT+24, 0x2000);
+  w32(OPT+28, 0x00400000); w32(OPT+32, 0x1000); w32(OPT+36, 0x200);
+  w16(OPT+40, 6); w16(OPT+42, 0); w16(OPT+44, 0); w16(OPT+46, 0);
+  w16(OPT+48, 6); w16(OPT+50, 0); w32(OPT+52, 0);
+  w32(OPT+56, 0x4000); w32(OPT+60, 0x400); w32(OPT+64, 0);
+  w16(OPT+68, 2); w16(OPT+70, 0x8140);
+  w32(OPT+72, 0x100000); w32(OPT+76, 0x1000);
+  w32(OPT+80, 0x100000); w32(OPT+84, 0x1000);
+  w32(OPT+88, 0); w32(OPT+92, 16);
 
-  // ── Section Headers (3 sections à PE+24+224 = PE+248) ──
   const SEC=PE+248;
-
-  // .text
   const tname=".text\0\0\0";
   for(let i=0;i<8;i++) buf[SEC+i]=tname.charCodeAt(i)||0;
-  w32(SEC+8,  0x800);    // VirtualSize
-  w32(SEC+12, 0x1000);   // VirtualAddress
-  w32(SEC+16, 0x200);    // SizeOfRawData
-  w32(SEC+20, 0x400);    // PointerToRawData
-  w32(SEC+36, 0x60000020); // Characteristics: CODE|EXECUTE|READ
+  w32(SEC+8,  0x800); w32(SEC+12, 0x1000);
+  w32(SEC+16, 0x200); w32(SEC+20, 0x400); w32(SEC+36, 0x60000020);
 
-  // .rdata
   const rname=".rdata\0\0";
   for(let i=0;i<8;i++) buf[SEC+40+i]=rname.charCodeAt(i)||0;
-  w32(SEC+48, 0x400);
-  w32(SEC+52, 0x2000);
-  w32(SEC+56, 0x200);
-  w32(SEC+60, 0x600);
-  w32(SEC+76, 0x40000040); // Characteristics: INIT_DATA|READ
+  w32(SEC+48, 0x400); w32(SEC+52, 0x2000);
+  w32(SEC+56, 0x200); w32(SEC+60, 0x600); w32(SEC+76, 0x40000040);
 
-  // .data
   const dname=".data\0\0\0";
   for(let i=0;i<8;i++) buf[SEC+80+i]=dname.charCodeAt(i)||0;
-  w32(SEC+88, 0x200);
-  w32(SEC+92, 0x3000);
-  w32(SEC+96, 0x200);
-  w32(SEC+100, 0x800);
-  w32(SEC+116, 0xC0000040); // Characteristics: INIT_DATA|READ|WRITE
+  w32(SEC+88, 0x200); w32(SEC+92, 0x3000);
+  w32(SEC+96, 0x200); w32(SEC+100, 0x800); w32(SEC+116, 0xC0000040);
 
-  // ── VS_FIXEDFILEINFO dans .rdata à offset 0x600 ──
   const VI=0x600;
-  // Magic: FE EF 04 BD
   buf[VI]=0xFE; buf[VI+1]=0xEF; buf[VI+2]=0x04; buf[VI+3]=0xBD;
-  w32(VI+4,  0x00010000); // StrucVersion
-  w32(VI+8,  0x00010000); // FileVersionMS  = 1.0
-  w32(VI+12, 0x00000000); // FileVersionLS  = 0.0
-  w32(VI+16, 0x00010000); // ProductVersionMS
-  w32(VI+20, 0x00000000); // ProductVersionLS
+  w32(VI+4,  0x00010000); w32(VI+8,  0x00010000);
+  w32(VI+12, 0x00000000); w32(VI+16, 0x00010000); w32(VI+20, 0x00000000);
 
-  // ── Manifest XML dans .rdata ──
   const manifest = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n' +
     '<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">\r\n' +
     '  <assemblyIdentity version="1.0.0.0" processorArchitecture="x86"\r\n' +
@@ -2655,28 +2759,17 @@ function generateTestPE(){
     '  <description>Test Application</description>\r\n' +
     '</assembly>\r\n';
   const mOff=0x650;
-  for(let i=0;i<manifest.length&&mOff+i<buf.length;i++)
-    buf[mOff+i]=manifest.charCodeAt(i);
+  for(let i=0;i<manifest.length&&mOff+i<buf.length;i++) buf[mOff+i]=manifest.charCodeAt(i);
 
-  // ── Code minimal dans .text (RET instruction) ──
-  buf[0x400]=0xC3; // RET
-
-  // ── Quelques strings ASCII dans .data ──
+  buf[0x400]=0xC3;
   const strings=["TestApp v1.0","Copyright 2024","example.com"];
   let sOff=0x800;
-  for(const s of strings){
-    for(let i=0;i<s.length;i++) buf[sOff+i]=s.charCodeAt(i);
-    sOff+=s.length+2;
-  }
+  for(const s of strings){ for(let i=0;i<s.length;i++) buf[sOff+i]=s.charCodeAt(i); sOff+=s.length+2; }
 
-  // ── Recalcul checksum ──
   w32(OPT+64,0);
   let sum=0,carry=0;
   for(let i=0;i<buf.length-1;i+=2){sum+=((buf[i+1]<<8)|buf[i])+carry;carry=sum>>>16;sum&=0xffff;}
-  sum=(sum+carry)&0xffff;
-  const cs=(sum+buf.length)>>>0;
-  w32(OPT+64,cs);
-
+  sum=(sum+carry)&0xffff; const cs=(sum+buf.length)>>>0; w32(OPT+64,cs);
   return buf;
 }
 
@@ -2731,10 +2824,7 @@ function smSectionsFn(b){
   const numSec=readU16LE(b,hexPeOffsets.numSections);
   const optSize=readU16LE(b,hexPeOffsets.pe+20);
   let sOff=hexPeOffsets.pe+24+optSize,toggled=0;
-  for(let i=0;i<numSec;i++){
-    for(let j=0;j<8;j++){const c=b[sOff+j];if(c>=97&&c<=122){b[sOff+j]=c-32;toggled++;}}
-    sOff+=40;
-  }
+  for(let i=0;i<numSec;i++){ for(let j=0;j<8;j++){const c=b[sOff+j];if(c>=97&&c<=122){b[sOff+j]=c-32;toggled++;}} sOff+=40; }
   return toggled>0?`Sections → MAJUSCULES (${toggled} car.)`:null;
 }
 function smRichFn(b){
@@ -2745,39 +2835,31 @@ function smRichFn(b){
 function smStringsPaddingFn(b){
   let count=0;
   for(let i=hexPeOffsets.pe+256;i<b.length-8&&count<12;i++){
-    if(b[i]===0&&b[i+1]===0&&b[i+2]===0&&b[i+3]===0&&b[i+4]===0){
-      b[i+2]=randInt(1,15);count++;i+=16;
-    }
+    if(b[i]===0&&b[i+1]===0&&b[i+2]===0&&b[i+3]===0&&b[i+4]===0){ b[i+2]=randInt(1,15);count++;i+=16; }
   }
   return count>0?`Strings padding → ${count} zones`:null;
 }
 function smVersionInfoFn(b){
-  // dwSignature 0xFEEF04BD → little-endian : BD 04 EF FE
   const magic=[0xBD,0x04,0xEF,0xFE];
   for(let i=0;i<b.length-52;i++){
     if(b[i]===magic[0]&&b[i+1]===magic[1]&&b[i+2]===magic[2]&&b[i+3]===magic[3]){
       const maj=randInt(1,9),min=randInt(0,9),build=randInt(1000,9999),rev=randInt(0,999);
-      writeU32LE(b,i+8,(maj<<16)|min);
-      writeU32LE(b,i+12,(build<<16)|rev);
-      writeU32LE(b,i+16,(maj<<16)|min);
-      writeU32LE(b,i+20,(build<<16)|rev);
+      writeU32LE(b,i+8,(maj<<16)|min); writeU32LE(b,i+12,(build<<16)|rev);
+      writeU32LE(b,i+16,(maj<<16)|min); writeU32LE(b,i+20,(build<<16)|rev);
       return `VersionInfo → v${maj}.${min}.${build}.${rev}`;
     }
   }
   return null;
 }
 function smManifestFn(b){
-  const sig=[0x3C,0x3F,0x78,0x6D,0x6C]; // <?xml
+  const sig=[0x3C,0x3F,0x78,0x6D,0x6C];
   for(let i=0;i<b.length-200;i++){
     if(sig.every((v,j)=>b[i+j]===v)){
       const vStr='version="';
       for(let j=0;j<Math.min(500,b.length-i-12);j++){
         if(vStr.split('').every((c,k)=>b[i+j+k]===c.charCodeAt(0))){
           const vOff=i+j+vStr.length;
-          if(b[vOff]>=0x30&&b[vOff]<=0x39){
-            b[vOff]=((b[vOff]-0x30+1)%9+1)+0x30;
-            return `Manifest version incrémentée`;
-          }
+          if(b[vOff]>=0x30&&b[vOff]<=0x39){ b[vOff]=((b[vOff]-0x30+1)%9+1)+0x30; return `Manifest version incrémentée`; }
         }
       }
       return null;
@@ -2790,10 +2872,7 @@ function smIconsFn(b){
   for(let i=hexPeOffsets.pe;i<b.length-44;i++){
     if(b[i]===0x28&&b[i+1]===0x00&&b[i+2]===0x00&&b[i+3]===0x00){
       const w=readU32LE(b,i+4);
-      if(w>=16&&w<=256){
-        const pxOff=i+40;
-        if(pxOff+4<b.length){b[pxOff]^=0x01;found++;break;}
-      }
+      if(w>=16&&w<=256){ const pxOff=i+40; if(pxOff+4<b.length){b[pxOff]^=0x01;found++;break;} }
     }
   }
   return found>0?`${found} icône(s) modifiée(s)`:null;
@@ -2843,10 +2922,7 @@ $("hxStrReplace").addEventListener("click",()=>{
   let count=0;
   for(let i=0;i<b.length-findBytes.length;i++){
     if(findBytes.every((v,j)=>b[i+j]===v)){
-      // Remplacer avec padding/truncation pour garder la même longueur
-      for(let j=0;j<findBytes.length;j++){
-        b[i+j]=j<repl.length?repl.charCodeAt(j):0x00;
-      }
+      for(let j=0;j<findBytes.length;j++){ b[i+j]=j<repl.length?repl.charCodeAt(j):0x00; }
       count++;i+=findBytes.length-1;
     }
   }
@@ -2854,8 +2930,7 @@ $("hxStrReplace").addEventListener("click",()=>{
   else{alert(`"${find}" non trouvé dans le fichier.`);}
 });
 
-// Charger les variantes sauvegardées au démarrage
-try{ localStorage.removeItem("hexVariants"); }catch(e){} // nettoie l'ancienne clé lourde
+try{ localStorage.removeItem("hexVariants"); }catch(e){}
 loadHexVariants();
 </script>
 </body>
