@@ -132,6 +132,7 @@
     <div class="tab active"  onclick="switchTab('vt')">🛡️ VirusTotal</div>
     <div class="tab"         onclick="switchTab('pe')">🔧 Éditeur PE</div>
     <div class="tab"         onclick="switchTab('hex')">💾 Éditeur Hex</div>
+    <div class="tab"         onclick="switchTab('defense')">🛡️ Défense</div>
     <div class="tab"         onclick="switchTab('hist')">📋 Historique</div>
     <div class="tab"         onclick="switchTab('diff')">🔍 Comparaison</div>
   </div>
@@ -578,6 +579,19 @@
     </div>
   </div>
 
+  <!-- ── DÉFENSE / ANALYSE DES PROTECTIONS ────────────────────── -->
+  <div class="tab-content" id="tab-defense">
+    <fieldset>
+      <legend>🛡️ Analyse des protections (lecture seule)</legend>
+      <div style="font-size:11px;color:#555;margin-bottom:10px;">
+        Charge un fichier .exe/.dll pour détecter les protections et la cryptographie qu'il contient : packers, chiffrement, sections suspectes, constantes crypto. L'analyse ne modifie rien.
+      </div>
+      <input type="file" id="defenseFile" style="width:100%;box-sizing:border-box;margin-bottom:10px;" />
+      <div id="defenseEmpty" class="empty-msg">Aucun fichier analysé.<br>Charge un exécutable pour lancer l'analyse.</div>
+      <div id="defenseResult" class="hidden"></div>
+    </fieldset>
+  </div>
+
   <!-- ── HISTORIQUE ──────────────────────────────────────────── -->
   <div class="tab-content" id="tab-hist">
     <fieldset>
@@ -649,7 +663,7 @@ let startTime = null, timerInt = null;
 
 // ─── Onglets ──────────────────────────────────────────────────────────────────
 function switchTab(name){
-  const names=['vt','pe','hex','hist','diff'];
+  const names=['vt','pe','hex','defense','hist','diff'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   $('tab-'+name).classList.add('active');
@@ -2941,6 +2955,228 @@ $("hxStrReplace").addEventListener("click", () => {
 
 try{ localStorage.removeItem("hexVariants"); } catch(e){}
 loadHexVariants();
+
+// ═══════════════════════════════════════════════════════════════
+// ANALYSE DÉFENSIVE — détection en lecture seule (ne modifie rien)
+// ═══════════════════════════════════════════════════════════════
+$("defenseFile").addEventListener("change",async(e)=>{
+  const file=e.target.files[0];
+  if(!file) return;
+  const buf=new Uint8Array(await file.arrayBuffer());
+  analyzeDefense(buf, file.name);
+});
+
+const PACKER_SIGNATURES=[
+  {name:"UPX", patterns:["UPX0","UPX1","UPX!"]},
+  {name:"ASPack", patterns:["ASPack",".aspack"]},
+  {name:"PECompact", patterns:["PEC2","PECompact"]},
+  {name:"Themida/WinLicense", patterns:["Themida",".themida"]},
+  {name:"VMProtect", patterns:[".vmp0",".vmp1","VMProtect"]},
+  {name:"MPRESS", patterns:[".MPRESS1",".MPRESS2"]},
+  {name:"FSG", patterns:["FSG!"]},
+  {name:"MEW", patterns:["MEW"]},
+  {name:"NsPack", patterns:[".nsp0",".nsp1"]},
+  {name:"Petite", patterns:[".petite"]},
+  {name:"Enigma", patterns:["Enigma"]},
+];
+
+// Signatures cryptographiques renforcées — plusieurs empreintes par algorithme
+// Détection en lecture seule : reconnaît la présence de crypto, n'exécute rien.
+const CRYPTO_SIGNATURES=[
+  // ── ChaCha20 / XChaCha20 ──
+  {algo:"ChaCha20 / XChaCha20", type:"constante sigma", bytes:[0x65,0x78,0x70,0x61,0x6E,0x64,0x20,0x33,0x32,0x2D,0x62,0x79,0x74,0x65,0x20,0x6B]}, // "expand 32-byte k"
+  {algo:"ChaCha20 / XChaCha20", type:"sigma (mots)", bytes:[0x61,0x70,0x78,0x65]}, // "apxe" — fragment little-endian du 1er mot d'état
+  // ── Salsa20 ──
+  {algo:"Salsa20", type:"constante tau", bytes:[0x65,0x78,0x70,0x61,0x6E,0x64,0x20,0x31,0x36,0x2D,0x62,0x79,0x74,0x65,0x20,0x6B]}, // "expand 16-byte k"
+  // ── AES / Rijndael ──
+  {algo:"AES-256 / Rijndael", type:"S-box directe", bytes:[0x63,0x7C,0x77,0x7B,0xF2,0x6B,0x6F,0xC5,0x30,0x01,0x67,0x2B]},
+  {algo:"AES-256 / Rijndael", type:"S-box inverse", bytes:[0x52,0x09,0x6A,0xD5,0x30,0x36,0xA5,0x38,0xBF,0x40,0xA3,0x9E]}, // inv S-box début
+  {algo:"AES-256 / Rijndael", type:"Rcon", bytes:[0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1B,0x36]}, // Rcon
+  {algo:"AES-256 / Rijndael", type:"Te0 (T-table)", bytes:[0xC6,0x63,0x63,0xA5,0xF8,0x7C,0x7C,0x84]}, // table T début
+  // ── AES-NI (instructions processeur) ──
+  {algo:"AES-NI (matériel)", type:"opcode AESENC", bytes:[0x66,0x0F,0x38,0xDC]},
+  {algo:"AES-NI (matériel)", type:"opcode AESDEC", bytes:[0x66,0x0F,0x38,0xDE]},
+  {algo:"AES-NI (matériel)", type:"opcode AESKEYGENASSIST", bytes:[0x66,0x0F,0x3A,0xDF]},
+  // ── Poly1305 (souvent avec ChaCha) ──
+  {algo:"Poly1305", type:"clamp mask", bytes:[0xFF,0xFF,0xFF,0x0F,0xFC,0xFF,0xFF,0x0F]}, // masque de clamp partiel
+  // ── Hash (contexte crypto) ──
+  {algo:"SHA-256", type:"constantes H", bytes:[0x6A,0x09,0xE6,0x67,0xBB,0x67,0xAE,0x85]},
+  {algo:"SHA-512", type:"constantes H", bytes:[0x08,0xC9,0xBC,0xF3,0x67,0xE6,0x09,0x6A]},
+  {algo:"MD5", type:"constantes", bytes:[0x67,0x45,0x23,0x01,0xEF,0xCD,0xAB,0x89]},
+];
+
+// Noms de bibliothèques crypto cherchés dans la table d'imports / les chaînes
+const CRYPTO_IMPORTS=[
+  {algo:"libsodium", patterns:["sodium","libsodium"]},
+  {algo:"OpenSSL", patterns:["libeay32","ssleay32","libcrypto","EVP_","OpenSSL"]},
+  {algo:"Windows CNG", patterns:["bcrypt.dll","BCryptEncrypt","BCryptGenRandom"]},
+  {algo:"Windows CryptoAPI", patterns:["advapi32.dll","CryptEncrypt","CryptAcquireContext"]},
+  {algo:"Crypto++", patterns:["CryptoPP","cryptopp"]},
+  {algo:"mbedTLS", patterns:["mbedtls","mbedtls_aes"]},
+];
+
+function bytesToAscii(bytes){
+  let s="";
+  for(let i=0;i<bytes.length;i++) s+=(bytes[i]>=32&&bytes[i]<127)?String.fromCharCode(bytes[i]):"\x00";
+  return s;
+}
+
+// Cherche une séquence d'octets dans le fichier (Boyer-Moore simplifié)
+function findByteSequence(haystack, needle){
+  outer:
+  for(let i=0;i<=haystack.length-needle.length;i++){
+    for(let j=0;j<needle.length;j++){
+      if(haystack[i+j]!==needle[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+function analyzeDefense(bytes, filename){
+  $("defenseEmpty").classList.add("hidden");
+  const box=$("defenseResult");
+  box.classList.remove("hidden");
+
+  const alerts=[];
+
+  const isPE=bytes[0]===0x4D && bytes[1]===0x5A;
+
+  // 1. Packers
+  const ascii=bytesToAscii(bytes);
+  const packersFound=[];
+  PACKER_SIGNATURES.forEach(p=>{ if(p.patterns.some(pat=>ascii.includes(pat))) packersFound.push(p.name); });
+  if(packersFound.length>0) alerts.push({level:"high",text:`Packer/protecteur détecté : <b>${packersFound.join(", ")}</b>`});
+  else alerts.push({level:"ok",text:"Aucun packer connu détecté par signature"});
+
+  // 2. Détection de cryptographie (constantes + opcodes + imports)
+  const cryptoByAlgo={}; // algo -> [{type, offset}]
+  CRYPTO_SIGNATURES.forEach(c=>{
+    const pos=findByteSequence(bytes,c.bytes);
+    if(pos>=0){
+      if(!cryptoByAlgo[c.algo]) cryptoByAlgo[c.algo]=[];
+      cryptoByAlgo[c.algo].push({type:c.type,offset:pos});
+    }
+  });
+  // Imports crypto (recherche dans les chaînes ASCII)
+  const cryptoLibs=[];
+  CRYPTO_IMPORTS.forEach(lib=>{
+    if(lib.patterns.some(p=>ascii.includes(p))) cryptoLibs.push(lib.algo);
+  });
+
+  const algoKeys=Object.keys(cryptoByAlgo);
+  if(algoKeys.length>0){
+    algoKeys.forEach(algo=>{
+      const hits=cryptoByAlgo[algo];
+      const types=hits.map(h=>`${h.type} @0x${h.offset.toString(16).toUpperCase()}`).join(", ");
+      alerts.push({level:"med",text:`Crypto détectée : <b>${algo}</b> — ${hits.length} signature(s) : ${types}`});
+    });
+  }
+  if(cryptoLibs.length>0){
+    alerts.push({level:"med",text:`Bibliothèque(s) crypto importée(s) : <b>${[...new Set(cryptoLibs)].join(", ")}</b>`});
+  }
+  if(algoKeys.length===0 && cryptoLibs.length===0){
+    alerts.push({level:"ok",text:"Aucune signature cryptographique détectée (AES, ChaCha20, Salsa20, Poly1305, SHA, imports crypto)"});
+  }
+
+  // 3. Sections PE
+  let sections=[], entryPoint=0, epSection="?";
+  if(isPE){
+    try{
+      const peOff=bytes[0x3C]|(bytes[0x3D]<<8)|(bytes[0x3E]<<16)|(bytes[0x3F]<<24);
+      if(bytes[peOff]===0x50&&bytes[peOff+1]===0x45){
+        const numSec=bytes[peOff+6]|(bytes[peOff+7]<<8);
+        const optSize=bytes[peOff+20]|(bytes[peOff+21]<<8);
+        const optOff=peOff+24;
+        entryPoint=bytes[optOff+16]|(bytes[optOff+17]<<8)|(bytes[optOff+18]<<16)|(bytes[optOff+19]<<24);
+        let secOff=optOff+optSize;
+        for(let i=0;i<numSec&&i<20;i++){
+          let name="";
+          for(let j=0;j<8;j++){const c=bytes[secOff+j];if(c>=32&&c<127)name+=String.fromCharCode(c);}
+          name=name.replace(/\0/g,"").trim();
+          const vsize=bytes[secOff+8]|(bytes[secOff+9]<<8)|(bytes[secOff+10]<<16)|(bytes[secOff+11]<<24);
+          const vaddr=bytes[secOff+12]|(bytes[secOff+13]<<8)|(bytes[secOff+14]<<16)|(bytes[secOff+15]<<24);
+          const rawSize=bytes[secOff+16]|(bytes[secOff+17]<<8)|(bytes[secOff+18]<<16)|(bytes[secOff+19]<<24);
+          const rawOff=bytes[secOff+20]|(bytes[secOff+21]<<8)|(bytes[secOff+22]<<16)|(bytes[secOff+23]<<24);
+          const chars=bytes[secOff+36]|(bytes[secOff+37]<<8)|(bytes[secOff+38]<<16)|(bytes[secOff+39]<<24);
+          let ent=0;
+          if(rawOff>0&&rawSize>0&&rawOff+rawSize<=bytes.length) ent=hexEntropy(bytes.slice(rawOff,rawOff+rawSize));
+          sections.push({name,vaddr,vsize,rawOff,rawSize,ent,
+            exec:!!(chars&0x20000000),write:!!(chars&0x80000000),read:!!(chars&0x40000000)});
+          secOff+=40;
+        }
+        sections.forEach(s=>{ if(entryPoint>=s.vaddr && entryPoint<s.vaddr+s.vsize) epSection=s.name; });
+      }
+    }catch(err){}
+
+    sections.filter(s=>s.ent>7.2).forEach(s=>{
+      alerts.push({level:"med",text:`Section <b>${s.name}</b> à très haute entropie (${s.ent.toFixed(2)}/8) — probablement compressée ou chiffrée`});
+    });
+    sections.filter(s=>s.exec&&s.write).forEach(s=>{
+      alerts.push({level:"med",text:`Section <b>${s.name}</b> exécutable ET modifiable (RWX) — peut indiquer du code auto-modifiant`});
+    });
+    if(epSection!=="?" && epSection!==".text" && epSection!=="CODE"){
+      alerts.push({level:"med",text:`Point d'entrée dans la section <b>${epSection}</b> (inhabituel — normalement .text)`});
+    }
+  }else{
+    alerts.push({level:"med",text:"Fichier non-PE (pas de signature MZ) — analyse des sections ignorée"});
+  }
+
+  // 4. Junk code
+  let nopRun=0,maxNop=0,int3Run=0,maxInt3=0;
+  for(let i=0;i<bytes.length;i++){
+    if(bytes[i]===0x90){nopRun++;maxNop=Math.max(maxNop,nopRun);}else nopRun=0;
+    if(bytes[i]===0xCC){int3Run++;maxInt3=Math.max(maxInt3,int3Run);}else int3Run=0;
+  }
+  if(maxNop>=32) alerts.push({level:"med",text:`Longue série de NOP (${maxNop} octets 0x90) — possible NOP sled ou remplissage`});
+  if(maxInt3>=32) alerts.push({level:"med",text:`Longue série d'INT3 (${maxInt3} octets 0xCC)`});
+  if(maxNop<32&&maxInt3<32) alerts.push({level:"ok",text:"Pas de motif de junk code évident"});
+
+  // 5. Profil packé
+  const globalEnt=hexEntropy(bytes);
+  if(sections.length>0 && sections.length<=3 && globalEnt>7){
+    alerts.push({level:"med",text:`Peu de sections (${sections.length}) + entropie globale élevée (${globalEnt.toFixed(2)}/8) — profil typique d'un fichier packé`});
+  }
+
+  // ── Rendu ──
+  const highCount=alerts.filter(a=>a.level==="high").length;
+  const medCount=alerts.filter(a=>a.level==="med").length;
+
+  let html=`<div style="margin-bottom:12px;padding:10px;border-radius:6px;background:${highCount>0?'#f8d7da':medCount>0?'#fff3cd':'#d4edda'};border:1px solid ${highCount>0?'#dc3545':medCount>0?'#ffc107':'#28a745'};">
+    <b style="font-size:13px;">${filename}</b><br>
+    <span style="font-size:12px;">Résumé : ${highCount>0?`🔴 ${highCount} alerte(s) forte(s)`:''} ${medCount>0?`🟡 ${medCount} point(s) d'attention`:''} ${highCount===0&&medCount===0?'✅ Rien de notable':''}</span><br>
+    <span style="font-size:11px;color:#666;">Entropie globale : ${globalEnt.toFixed(2)}/8 · Taille : ${(bytes.length/1024).toFixed(1)} Ko</span>
+  </div>`;
+
+  html+=`<div style="margin-bottom:12px;">`;
+  alerts.forEach(a=>{
+    const color=a.level==="high"?"#dc3545":a.level==="med"?"#e0a800":"#28a745";
+    const icon=a.level==="high"?"🔴":a.level==="med"?"🟡":"✅";
+    html+=`<div style="padding:6px 8px;margin-bottom:4px;border-left:3px solid ${color};background:#fafafa;font-size:12px;">${icon} ${a.text}</div>`;
+  });
+  html+=`</div>`;
+
+  if(sections.length>0){
+    html+=`<div style="font-weight:600;color:#0033cc;margin-bottom:6px;font-size:12px;">Sections (${sections.length})</div>`;
+    html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px;">`;
+    html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">Perms</th><th style="padding:4px 6px;">Taille</th></tr>`;
+    sections.forEach(s=>{
+      const entColor=s.ent>7.2?"#c00":s.ent>6.5?"#e0a800":"#0a7";
+      const perms=(s.read?"R":"-")+(s.write?"W":"-")+(s.exec?"X":"-");
+      const permWarn=(s.exec&&s.write)?' style="color:#c00;font-weight:700;"':'';
+      html+=`<tr style="border-bottom:1px solid #eee;">
+        <td style="padding:4px 6px;font-family:monospace;">${s.name||'(vide)'}</td>
+        <td style="padding:4px 6px;text-align:center;color:${entColor};font-weight:600;">${s.ent.toFixed(2)}</td>
+        <td style="padding:4px 6px;text-align:center;font-family:monospace;"${permWarn}>${perms}</td>
+        <td style="padding:4px 6px;text-align:right;">${(s.rawSize/1024).toFixed(1)} Ko</td>
+      </tr>`;
+    });
+    html+=`</table></div>`;
+    html+=`<div style="font-size:10px;color:#888;margin-top:4px;">Point d'entrée : 0x${entryPoint.toString(16).toUpperCase()} (section ${epSection}) · Entropie : ✅ &lt;6.5 · 🟡 6.5-7.2 · 🔴 &gt;7.2</div>`;
+  }
+
+  box.innerHTML=html;
+}
 </script>
 </body>
 </html>
