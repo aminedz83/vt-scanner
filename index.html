@@ -134,6 +134,7 @@
     <div class="tab active"  onclick="switchTab('vt')">🛡️ VirusTotal</div>
     <div class="tab"         onclick="switchTab('pe')">🔧 Éditeur PE</div>
     <div class="tab"         onclick="switchTab('hex')">💾 Éditeur Hex</div>
+    <div class="tab"         onclick="switchTab('defense')">🛡️ Défense</div>
     <div class="tab"         onclick="switchTab('hist')">📋 Historique</div>
     <div class="tab"         onclick="switchTab('diff')">🔍 Comparaison</div>
   </div>
@@ -592,6 +593,19 @@
     </div>
   </div>
 
+  <!-- ── DÉFENSE / ANALYSE DES PROTECTIONS ────────────────────── -->
+  <div class="tab-content" id="tab-defense">
+    <fieldset>
+      <legend>🛡️ Analyse des protections (lecture seule)</legend>
+      <div style="font-size:11px;color:#555;margin-bottom:10px;">
+        Charge un fichier .exe/.dll pour détecter les protections qu'il utilise : packers, chiffrement, sections suspectes. L'analyse ne modifie rien.
+      </div>
+      <input type="file" id="defenseFile" style="width:100%;box-sizing:border-box;margin-bottom:10px;" />
+      <div id="defenseEmpty" class="empty-msg">Aucun fichier analysé.<br>Charge un exécutable pour lancer l'analyse.</div>
+      <div id="defenseResult" class="hidden"></div>
+    </fieldset>
+  </div>
+
   <!-- ── HISTORIQUE ──────────────────────────────────────────── -->
   <div class="tab-content" id="tab-hist">
     <fieldset>
@@ -831,7 +845,7 @@ let startTime = null, timerInt = null;
 
 // ─── Onglets ──────────────────────────────────────────────────────────────────
 function switchTab(name){
-  const names=['vt','pe','hex','hist','diff'];
+  const names=['vt','pe','hex','defense','hist','diff'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   $('tab-'+name).classList.add('active');
@@ -2979,6 +2993,180 @@ $("hxStrReplace").addEventListener("click",()=>{
 
 try{ localStorage.removeItem("hexVariants"); }catch(e){}
 loadHexVariants();
+
+// ═══════════════════════════════════════════════════════════════
+// ANALYSE DÉFENSIVE — détection en lecture seule (ne modifie rien)
+// ═══════════════════════════════════════════════════════════════
+$("defenseFile").addEventListener("change",async(e)=>{
+  const file=e.target.files[0];
+  if(!file) return;
+  const buf=new Uint8Array(await file.arrayBuffer());
+  analyzeDefense(buf, file.name);
+});
+
+// Signatures de packers/protecteurs connus (motifs ASCII cherchés dans le fichier)
+const PACKER_SIGNATURES=[
+  {name:"UPX", patterns:["UPX0","UPX1","UPX!"]},
+  {name:"ASPack", patterns:["ASPack",".aspack"]},
+  {name:"PECompact", patterns:["PEC2","PECompact"]},
+  {name:"Themida/WinLicense", patterns:["Themida",".themida"]},
+  {name:"VMProtect", patterns:[".vmp0",".vmp1","VMProtect"]},
+  {name:"MPRESS", patterns:[".MPRESS1",".MPRESS2"]},
+  {name:"FSG", patterns:["FSG!"]},
+  {name:"MEW", patterns:["MEW"]},
+  {name:"NsPack", patterns:[".nsp0",".nsp1"]},
+  {name:"Petite", patterns:[".petite"]},
+  {name:"Enigma", patterns:["Enigma"]},
+];
+
+function bytesToAscii(bytes){
+  let s="";
+  for(let i=0;i<bytes.length;i++) s+=(bytes[i]>=32&&bytes[i]<127)?String.fromCharCode(bytes[i]):"\x00";
+  return s;
+}
+
+function analyzeDefense(bytes, filename){
+  $("defenseEmpty").classList.add("hidden");
+  const box=$("defenseResult");
+  box.classList.remove("hidden");
+
+  const alerts=[]; // {level:'high'|'med'|'ok', text}
+
+  // Vérif PE
+  const isPE=bytes[0]===0x4D && bytes[1]===0x5A;
+  if(!isPE){
+    box.innerHTML=`<div style="padding:12px;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;">⚠️ Ce fichier n'est pas un exécutable PE (pas de signature MZ). Analyse limitée.</div>`;
+    return;
+  }
+
+  // 1. Détection de packer par signature
+  const ascii=bytesToAscii(bytes);
+  const packersFound=[];
+  PACKER_SIGNATURES.forEach(p=>{
+    if(p.patterns.some(pat=>ascii.includes(pat))) packersFound.push(p.name);
+  });
+
+  // 2. Parse PE : sections
+  let sections=[], entryPoint=0, epSection="?";
+  try{
+    const peOff=bytes[0x3C]|(bytes[0x3D]<<8)|(bytes[0x3E]<<16)|(bytes[0x3F]<<24);
+    if(bytes[peOff]===0x50&&bytes[peOff+1]===0x45){
+      const numSec=bytes[peOff+6]|(bytes[peOff+7]<<8);
+      const optSize=bytes[peOff+20]|(bytes[peOff+21]<<8);
+      const optOff=peOff+24;
+      // AddressOfEntryPoint (offset 16 dans optional header)
+      entryPoint=bytes[optOff+16]|(bytes[optOff+17]<<8)|(bytes[optOff+18]<<16)|(bytes[optOff+19]<<24);
+      let secOff=optOff+optSize;
+      for(let i=0;i<numSec&&i<20;i++){
+        let name="";
+        for(let j=0;j<8;j++){const c=bytes[secOff+j];if(c>=32&&c<127)name+=String.fromCharCode(c);}
+        name=name.replace(/\0/g,"").trim();
+        const vsize=bytes[secOff+8]|(bytes[secOff+9]<<8)|(bytes[secOff+10]<<16)|(bytes[secOff+11]<<24);
+        const vaddr=bytes[secOff+12]|(bytes[secOff+13]<<8)|(bytes[secOff+14]<<16)|(bytes[secOff+15]<<24);
+        const rawSize=bytes[secOff+16]|(bytes[secOff+17]<<8)|(bytes[secOff+18]<<16)|(bytes[secOff+19]<<24);
+        const rawOff=bytes[secOff+20]|(bytes[secOff+21]<<8)|(bytes[secOff+22]<<16)|(bytes[secOff+23]<<24);
+        const chars=bytes[secOff+36]|(bytes[secOff+37]<<8)|(bytes[secOff+38]<<16)|(bytes[secOff+39]<<24);
+        // Entropie de la section
+        let ent=0;
+        if(rawOff>0&&rawSize>0&&rawOff+rawSize<=bytes.length){
+          ent=hexEntropy(bytes.slice(rawOff,rawOff+rawSize));
+        }
+        const exec=!!(chars&0x20000000), write=!!(chars&0x80000000), read=!!(chars&0x40000000);
+        sections.push({name,vaddr,vsize,rawOff,rawSize,ent,exec,write,read});
+        secOff+=40;
+      }
+      // Trouver la section du point d'entrée
+      sections.forEach(s=>{ if(entryPoint>=s.vaddr && entryPoint<s.vaddr+s.vsize) epSection=s.name; });
+    }
+  }catch(err){}
+
+  // 3. Analyses
+  // Packer
+  if(packersFound.length>0){
+    alerts.push({level:"high",text:`Packer/protecteur détecté : <b>${packersFound.join(", ")}</b>`});
+  }else{
+    alerts.push({level:"ok",text:"Aucun packer connu détecté par signature"});
+  }
+
+  // Sections à haute entropie (chiffrées/compressées)
+  const highEntropySections=sections.filter(s=>s.ent>7.2);
+  if(highEntropySections.length>0){
+    highEntropySections.forEach(s=>{
+      alerts.push({level:"med",text:`Section <b>${s.name}</b> à très haute entropie (${s.ent.toFixed(2)}/8) — probablement compressée ou chiffrée`});
+    });
+  }
+
+  // Sections exécutables ET modifiables (RWX) = code auto-modifiant possible
+  const rwxSections=sections.filter(s=>s.exec&&s.write);
+  if(rwxSections.length>0){
+    rwxSections.forEach(s=>{
+      alerts.push({level:"med",text:`Section <b>${s.name}</b> est à la fois exécutable et modifiable (RWX) — peut indiquer du code auto-modifiant`});
+    });
+  }
+
+  // Point d'entrée dans une section non standard
+  if(epSection!=="?" && !["\.text",".text","CODE"].includes(epSection)){
+    if(epSection!==".text"){
+      alerts.push({level:"med",text:`Point d'entrée dans la section <b>${epSection}</b> (inhabituel — le code démarre normalement dans .text)`});
+    }
+  }
+
+  // Junk code : recherche de NOP sleds et INT3 massifs
+  let nopRun=0, maxNop=0, int3Run=0, maxInt3=0;
+  for(let i=0;i<bytes.length;i++){
+    if(bytes[i]===0x90){nopRun++;maxNop=Math.max(maxNop,nopRun);}else nopRun=0;
+    if(bytes[i]===0xCC){int3Run++;maxInt3=Math.max(maxInt3,int3Run);}else int3Run=0;
+  }
+  if(maxNop>=32) alerts.push({level:"med",text:`Longue série de NOP détectée (${maxNop} octets 0x90 consécutifs) — possible "NOP sled" ou remplissage`});
+  if(maxInt3>=32) alerts.push({level:"med",text:`Longue série d'INT3 détectée (${maxInt3} octets 0xCC consécutifs)`});
+  if(maxNop<32&&maxInt3<32) alerts.push({level:"ok",text:"Pas de motif de junk code évident (NOP sled / INT3)"});
+
+  // Peu de sections + haute entropie globale = souvent packé
+  const globalEnt=hexEntropy(bytes);
+  if(sections.length<=3 && globalEnt>7){
+    alerts.push({level:"med",text:`Peu de sections (${sections.length}) et entropie globale élevée (${globalEnt.toFixed(2)}/8) — profil typique d'un fichier packé`});
+  }
+
+  // ── Rendu ──
+  const highCount=alerts.filter(a=>a.level==="high").length;
+  const medCount=alerts.filter(a=>a.level==="med").length;
+
+  let html=`<div style="margin-bottom:12px;padding:10px;border-radius:6px;background:${highCount>0?'#f8d7da':medCount>0?'#fff3cd':'#d4edda'};border:1px solid ${highCount>0?'#dc3545':medCount>0?'#ffc107':'#28a745'};">
+    <b style="font-size:13px;">${filename}</b><br>
+    <span style="font-size:12px;">Résumé : ${highCount>0?`🔴 ${highCount} alerte(s) forte(s)`:''} ${medCount>0?`🟡 ${medCount} point(s) d'attention`:''} ${highCount===0&&medCount===0?'✅ Aucune protection notable détectée':''}</span>
+  </div>`;
+
+  // Détail des alertes
+  html+=`<div style="margin-bottom:12px;">`;
+  alerts.forEach(a=>{
+    const color=a.level==="high"?"#dc3545":a.level==="med"?"#e0a800":"#28a745";
+    const icon=a.level==="high"?"🔴":a.level==="med"?"🟡":"✅";
+    html+=`<div style="padding:6px 8px;margin-bottom:4px;border-left:3px solid ${color};background:#fafafa;font-size:12px;">${icon} ${a.text}</div>`;
+  });
+  html+=`</div>`;
+
+  // Tableau des sections
+  if(sections.length>0){
+    html+=`<div style="font-weight:600;color:#0033cc;margin-bottom:6px;font-size:12px;">Sections (${sections.length})</div>`;
+    html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px;">`;
+    html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">Perms</th><th style="padding:4px 6px;">Taille</th></tr>`;
+    sections.forEach(s=>{
+      const entColor=s.ent>7.2?"#c00":s.ent>6.5?"#e0a800":"#0a7";
+      const perms=(s.read?"R":"-")+(s.write?"W":"-")+(s.exec?"X":"-");
+      const permWarn=(s.exec&&s.write)?' style="color:#c00;font-weight:700;"':'';
+      html+=`<tr style="border-bottom:1px solid #eee;">
+        <td style="padding:4px 6px;font-family:monospace;">${s.name||'(vide)'}</td>
+        <td style="padding:4px 6px;text-align:center;color:${entColor};font-weight:600;">${s.ent.toFixed(2)}</td>
+        <td style="padding:4px 6px;text-align:center;font-family:monospace;"${permWarn}>${perms}</td>
+        <td style="padding:4px 6px;text-align:right;">${(s.rawSize/1024).toFixed(1)} Ko</td>
+      </tr>`;
+    });
+    html+=`</table></div>`;
+    html+=`<div style="font-size:10px;color:#888;margin-top:4px;">Point d'entrée : 0x${entryPoint.toString(16).toUpperCase()} (section ${epSection}) · Entropie : ✅ &lt;6.5 · 🟡 6.5-7.2 · 🔴 &gt;7.2 (chiffré/compressé)</div>`;
+  }
+
+  box.innerHTML=html;
+}
 </script>
 </body>
 </html>
