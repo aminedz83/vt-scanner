@@ -4,6 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>VT Scanner Pro</title>
+<!-- ✅ AJOUT : libsodium.js pour les vrais algorithmes de chiffrement -->
+<script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.15/dist/libsodium-wrappers.min.js"></script>
 <style>
   :root{
     --win-blue-top:#3f7fd6; --win-blue-bot:#1a52a8;
@@ -547,17 +549,12 @@
               <optgroup label="── Avancé ──">
                 <option value="entropy">Entropie contrôlée</option>
               </optgroup>
-              <!-- ✅ AJOUT : Algorithmes de chiffrement -->
-              <optgroup label="── 🔐 Chiffrement (AEAD / flux) ──">
-                <option value="aes256">🔐 AES-256-GCM — Standard NIST</option>
-                <option value="xchacha20">🔐 XChaCha20-Poly1305 — Nonce étendu</option>
-                <option value="chacha20">🔐 ChaCha20-Poly1305 — Rapide et moderne</option>
-                <option value="camellia">🔐 Camellia-256 — Alternative à AES</option>
-                <option value="twofish">🔐 Twofish-256 — Candidat AES</option>
-                <option value="serpent">🔐 Serpent-256 — Candidat AES</option>
-                <option value="aria">🔐 ARIA-256 — Standard sud-coréen</option>
-                <option value="sm4">🔐 SM4-128 — Standard chinois</option>
-                <option value="salsa20">🔐 Salsa20-256 — Prédécesseur de ChaCha20</option>
+              <!-- ✅ AJOUT : Algorithmes de chiffrement réels -->
+              <optgroup label="── 🔐 Chiffrement réel (AEAD / flux) ──">
+                <option value="aes256">🔐 AES-256-GCM — Standard NIST (natif)</option>
+                <option value="xchacha20">🔐 XChaCha20-Poly1305 — Nonce 192-bit (libsodium)</option>
+                <option value="chacha20">🔐 ChaCha20-Poly1305 — Rapide et moderne (libsodium)</option>
+                <option value="salsa20">🔐 Salsa20-256 — Flux (libsodium)</option>
               </optgroup>
             </select>
             <div id="hexStratDesc" style="font-size:10px;color:#888;margin-top:3px;"></div>
@@ -570,7 +567,7 @@
             <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Clé (hex, ex: FF)</label>
             <input type="text" id="hexXorKey" maxlength="2" placeholder="FF" style="width:70px;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;font-family:monospace;box-sizing:border-box;" />
           </div>
-          <!-- ✅ AJOUT : Champs pour les algorithmes de chiffrement -->
+          <!-- ✅ AJOUT : Champs crypto -->
           <div id="hexCryptoWrap" class="hidden" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;width:100%;box-sizing:border-box;">
             <label style="font-size:10px;color:#555;display:flex;align-items:center;gap:4px;">
               🔑 Clé (hex) :
@@ -655,6 +652,174 @@
 
 <script>
 const $ = id => document.getElementById(id);
+
+// ============================================================
+// 1. Initialisation de libsodium (pour les vrais algorithmes)
+// ============================================================
+let sodium = null;
+
+async function initSodium() {
+  try {
+    if (window.sodium) {
+      sodium = window.sodium;
+      await sodium.ready;
+      console.log('✅ libsodium.js chargé et prêt');
+      return true;
+    } else {
+      console.warn('⚠️ libsodium.js non trouvé, fallback sur AES-256-GCM');
+      return false;
+    }
+  } catch(e) {
+    console.warn('⚠️ Erreur libsodium:', e.message);
+    return false;
+  }
+}
+
+// Charger libsodium au démarrage
+initSodium();
+
+// ─── Convertir une chaîne hex en Uint8Array ────────────────────────────────
+function hexToBytes(hex) {
+  const clean = hex.replace(/[^0-9A-Fa-f]/g, '');
+  const bytes = new Uint8Array(Math.ceil(clean.length / 2));
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.substr(i * 2, 2), 16) || 0;
+  }
+  return bytes;
+}
+
+// ─── Fonction de chiffrement réel avec libsodium.js ─────────────────────────
+async function applyCryptoReal(bytes, offsets, algo, keyHex, nonceHex) {
+  // Générer clé et nonce si absents
+  if (!keyHex || keyHex.length < 8) {
+    keyHex = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  
+  let nonceLen = 12;
+  if (algo === 'xchacha20') nonceLen = 24;
+  else if (algo === 'chacha20') nonceLen = 12;
+  else if (algo === 'salsa20') nonceLen = 8;
+  else if (algo === 'aes256') nonceLen = 12;
+
+  if (!nonceHex || nonceHex.length < 8) {
+    nonceHex = Array.from(crypto.getRandomValues(new Uint8Array(nonceLen)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  const keyBytes = hexToBytes(keyHex).slice(0, 32);
+  const nonceBytes = hexToBytes(nonceHex).slice(0, nonceLen);
+  const dataToEncrypt = new Uint8Array(offsets.map(o => bytes[o]));
+
+  let encrypted = null;
+
+  try {
+    switch(algo) {
+      case 'aes256':
+        // AES-256-GCM (Web Crypto API — natif)
+        const cryptoKey = await crypto.subtle.importKey(
+          'raw',
+          keyBytes,
+          { name: 'AES-GCM' },
+          false,
+          ['encrypt']
+        );
+        const aesResult = await crypto.subtle.encrypt(
+          { name: 'AES-GCM', iv: nonceBytes },
+          cryptoKey,
+          dataToEncrypt
+        );
+        encrypted = new Uint8Array(aesResult);
+        break;
+
+      case 'xchacha20':
+        // XChaCha20-Poly1305 (libsodium)
+        if (!sodium) throw new Error('libsodium non disponible');
+        encrypted = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+          dataToEncrypt,
+          null,
+          nonceBytes,
+          keyBytes
+        );
+        break;
+
+      case 'chacha20':
+        // ChaCha20-Poly1305 (libsodium)
+        if (!sodium) throw new Error('libsodium non disponible');
+        encrypted = sodium.crypto_aead_chacha20poly1305_ietf_encrypt(
+          dataToEncrypt,
+          null,
+          nonceBytes,
+          keyBytes
+        );
+        break;
+
+      case 'salsa20':
+        // Salsa20-256 (libsodium)
+        if (!sodium) throw new Error('libsodium non disponible');
+        encrypted = sodium.crypto_stream_salsa20_xor(
+          dataToEncrypt,
+          nonceBytes,
+          keyBytes
+        );
+        break;
+
+      default:
+        // Fallback : AES-256-GCM
+        const fallbackKey = await crypto.subtle.importKey(
+          'raw',
+          keyBytes,
+          { name: 'AES-GCM' },
+          false,
+          ['encrypt']
+        );
+        const fallbackResult = await crypto.subtle.encrypt(
+          { name: 'AES-GCM', iv: nonceBytes.slice(0, 12) },
+          fallbackKey,
+          dataToEncrypt
+        );
+        encrypted = new Uint8Array(fallbackResult);
+    }
+
+    // Écrire les données chiffrées
+    const result = new Uint8Array(bytes);
+    for (let i = 0; i < Math.min(offsets.length, encrypted.length); i++) {
+      result[offsets[i]] = encrypted[i];
+    }
+    return result;
+
+  } catch (err) {
+    log(`⚠️ Erreur chiffrement ${algo} : ${err.message} — fallback AES-256-GCM`);
+    // Fallback AES-256-GCM
+    try {
+      const fbkKey = await crypto.subtle.importKey(
+        'raw',
+        keyBytes.slice(0, 32),
+        { name: 'AES-GCM' },
+        false,
+        ['encrypt']
+      );
+      const fbkResult = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: nonceBytes.slice(0, 12) },
+        fbkKey,
+        dataToEncrypt
+      );
+      const fbkEncrypted = new Uint8Array(fbkResult);
+      const result = new Uint8Array(bytes);
+      for (let i = 0; i < Math.min(offsets.length, fbkEncrypted.length); i++) {
+        result[offsets[i]] = fbkEncrypted[i];
+      }
+      return result;
+    } catch (e) {
+      // Dernier fallback : XOR
+      const result = new Uint8Array(bytes);
+      for (let i = 0; i < offsets.length; i++) {
+        result[offsets[i]] = bytes[offsets[i]] ^ (keyBytes[i % keyBytes.length] || 0xFF);
+      }
+      return result;
+    }
+  }
+}
 
 // ─── État global ─────────────────────────────────────────────────────────────
 let selectedFile = null;
@@ -1949,22 +2114,21 @@ function updateHexSelInfo(){
 }
 
 // ─── Stratégies de modification ───────────────────────────────────────────────
-async function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey, keyHex, nonceHex){
-  const result=new Uint8Array(bytes);
-  if(offsets.length===0) return result;
+async function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey, keyHex, nonceHex) {
+  const result = new Uint8Array(bytes);
+  if (offsets.length === 0) return result;
 
-  // Si c'est un algorithme de chiffrement
-  const cryptoAlgos = ['aes256', 'xchacha20', 'chacha20', 'camellia', 'twofish', 'serpent', 'aria', 'sm4', 'salsa20'];
+  // Si c'est un algorithme de chiffrement (réel)
+  const cryptoAlgos = ['aes256', 'xchacha20', 'chacha20', 'salsa20'];
   if (cryptoAlgos.includes(strategy)) {
     try {
-      const encrypted = await applyCrypto(bytes, offsets, strategy, keyHex, nonceHex);
-      return encrypted;
-    } catch(e) {
+      return await applyCryptoReal(bytes, offsets, strategy, keyHex, nonceHex);
+    } catch (e) {
       log(`⚠️ Erreur chiffrement ${strategy} : ${e.message}`);
-      // Fallback : XOR simple
-      const fallbackKey = keyHex ? hexToBytes(keyHex) : new Uint8Array([0xFF]);
+      // Fallback XOR
+      const fbkKey = keyHex ? hexToBytes(keyHex) : new Uint8Array([0xFF]);
       for (let i = 0; i < offsets.length; i++) {
-        result[offsets[i]] = bytes[offsets[i]] ^ (fallbackKey[i % fallbackKey.length] || 0xFF);
+        result[offsets[i]] = bytes[offsets[i]] ^ (fbkKey[i % fbkKey.length] || 0xFF);
       }
       return result;
     }
@@ -2014,121 +2178,12 @@ async function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey, k
   return result;
 }
 
-// ─── Fonction de chiffrement réel ─────────────────────────────────────────────
-async function applyCrypto(bytes, offsets, algo, keyHex, nonceHex) {
-  // Si pas de clé, en générer une aléatoire
-  if (!keyHex || keyHex.length < 8) {
-    keyHex = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-      .map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-  // Si pas de nonce, en générer un aléatoire
-  if (!nonceHex || nonceHex.length < 8) {
-    const nonceLen = (algo === 'xchacha20' || algo === 'chacha20' || algo === 'salsa20') ? 24 : 12;
-    nonceHex = Array.from(crypto.getRandomValues(new Uint8Array(nonceLen)))
-      .map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  // Convertir la clé en Uint8Array
-  const keyBytes = hexToBytes(keyHex);
-  const nonceBytes = hexToBytes(nonceHex);
-
-  // Extraire les données à chiffrer
-  const dataToEncrypt = new Uint8Array(offsets.map(o => bytes[o]));
-
-  let result = new Uint8Array(bytes);
-  try {
-    // AES-256-GCM : utilise Web Crypto API (natif)
-    if (algo === 'aes256') {
-      const cryptoKey = await crypto.subtle.importKey(
-        'raw',
-        keyBytes.slice(0, 32),
-        { name: 'AES-GCM' },
-        false,
-        ['encrypt', 'decrypt']
-      );
-      const iv = nonceBytes.slice(0, 12);
-      const encrypted = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: iv },
-        cryptoKey,
-        dataToEncrypt
-      );
-      const encryptedBytes = new Uint8Array(encrypted);
-      for (let i = 0; i < Math.min(offsets.length, encryptedBytes.length); i++) {
-        result[offsets[i]] = encryptedBytes[i];
-      }
-      return result;
-    }
-
-    // Pour les autres algorithmes : fallback sur AES-256-GCM
-    // (Web Crypto API ne supporte pas Camellia, Twofish, etc.)
-    // Mais on simule un vrai chiffrement avec AES
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw',
-      keyBytes.slice(0, 32),
-      { name: 'AES-GCM' },
-      false,
-      ['encrypt', 'decrypt']
-    );
-    const iv = nonceBytes.slice(0, 12);
-    const encrypted = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv: iv },
-      cryptoKey,
-      dataToEncrypt
-    );
-    const encryptedBytes = new Uint8Array(encrypted);
-    for (let i = 0; i < Math.min(offsets.length, encryptedBytes.length); i++) {
-      result[offsets[i]] = encryptedBytes[i];
-    }
-    return result;
-  } catch (e) {
-    log(`⚠️ Erreur chiffrement ${algo} : ${e.message} — fallback AES-256-GCM`);
-    // Fallback : utiliser AES-256-GCM
-    try {
-      const cryptoKey = await crypto.subtle.importKey(
-        'raw',
-        keyBytes.slice(0, 32),
-        { name: 'AES-GCM' },
-        false,
-        ['encrypt', 'decrypt']
-      );
-      const iv = nonceBytes.slice(0, 12);
-      const encrypted = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: iv },
-        cryptoKey,
-        dataToEncrypt
-      );
-      const encryptedBytes = new Uint8Array(encrypted);
-      for (let i = 0; i < Math.min(offsets.length, encryptedBytes.length); i++) {
-        result[offsets[i]] = encryptedBytes[i];
-      }
-      return result;
-    } catch (err) {
-      // Dernier fallback : XOR avec la clé
-      for (let i = 0; i < offsets.length; i++) {
-        result[offsets[i]] = bytes[offsets[i]] ^ (keyBytes[i % keyBytes.length] || 0xFF);
-      }
-      return result;
-    }
-  }
-}
-
-// Convertir une chaîne hex en Uint8Array
-function hexToBytes(hex) {
-  const clean = hex.replace(/[^0-9A-Fa-f]/g, '');
-  const bytes = new Uint8Array(Math.ceil(clean.length / 2));
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(clean.substr(i * 2, 2), 16) || 0;
-  }
-  return bytes;
-}
-
 const HEX_STRAT_LABELS={nop:"NOP",zero:"Zéros",ff:"0xFF",int3:"INT3",custom:"Custom",
   increment:"Incrément",decrement:"Décrément",invert:"NOT",xor:"XOR",random:"Aléatoire",
   pattern:"Motif",shuffle:"Shuffle",mirror:"Miroir",entropy:"Entropie",
   rol:"ROL",ror:"ROR",swapnib:"Swap nibbles",addconst:"Add const",subconst:"Sub const",seq:"Séquence",
-  aes256:"AES-256-GCM", xchacha20:"XChaCha20-Poly1305", chacha20:"ChaCha20-Poly1305",
-  camellia:"Camellia-256", twofish:"Twofish-256", serpent:"Serpent-256",
-  aria:"ARIA-256", sm4:"SM4-128", salsa20:"Salsa20-256"};
+  aes256:"AES-256-GCM", xchacha20:"XChaCha20-Poly1305",
+  chacha20:"ChaCha20-Poly1305", salsa20:"Salsa20-256"};
 
 const HEX_STRAT_DESC={
   nop:"Instruction neutre x86 — la plus sûre pour le code",
@@ -2151,15 +2206,10 @@ const HEX_STRAT_DESC={
   addconst:"Ajoute la clé (champ ci-contre) à chaque octet",
   subconst:"Soustrait la clé (champ ci-contre) à chaque octet",
   seq:"Séquence croissante 00 01 02 03 04…",
-  aes256:"🔐 AES-256-GCM — Chiffrement authentifié standard NIST, très rapide (Web Crypto API)",
-  xchacha20:"🔐 XChaCha20-Poly1305 — Nonce de 192 bits, idéal pour fichiers (libsodium)",
-  chacha20:"🔐 ChaCha20-Poly1305 — Moderne, rapide, utilisé dans TLS (libsodium)",
-  camellia:"🔐 Camellia-256 — Algorithme japonais ISO/IEC, comparable à AES (libsodium)",
-  twofish:"🔐 Twofish-256 — Ancien candidat AES, toujours robuste (libsodium)",
-  serpent:"🔐 Serpent-256 — Très sécurisé, légèrement plus lent (libsodium)",
-  aria:"🔐 ARIA-256 — Standard sud-coréen KS X 1213 (libsodium)",
-  sm4:"🔐 SM4-128 — Standard chinois GB/T 32907, bloc 128 bits (libsodium)",
-  salsa20:"🔐 Salsa20-256 — Chiffrement par flux de Daniel J. Bernstein (libsodium)",
+  aes256:"🔐 AES-256-GCM — Vrai chiffrement authentifié standard NIST (Web Crypto API)",
+  xchacha20:"🔐 XChaCha20-Poly1305 — Vrai chiffrement authentifié, nonce 192-bit (libsodium.js)",
+  chacha20:"🔐 ChaCha20-Poly1305 — Vrai chiffrement authentifié, rapide et moderne (libsodium.js)",
+  salsa20:"🔐 Salsa20-256 — Vrai chiffrement par flux (libsodium.js)",
 };
 
 function updateStratDesc(){
@@ -2380,12 +2430,12 @@ $("hexSelClear").addEventListener("click",()=>{
   hexSelectedRows.clear();updateHexSelInfo();renderHex();renderBlockButtons();
 });
 
-$("hexStrategy").addEventListener("change",()=>{
-  const s=$("hexStrategy").value;
+$("hexStrategy").addEventListener("change",function(){
+  const s=this.value;
   $("hexCustomWrap").classList.toggle("hidden",!(s==="custom"||s==="pattern"));
   $("hexXorWrap").classList.toggle("hidden",!(s==="xor"||s==="addconst"||s==="subconst"));
-  // Afficher les champs crypto si c'est un algorithme de chiffrement
-  const cryptoAlgos = ['aes256', 'xchacha20', 'chacha20', 'camellia', 'twofish', 'serpent', 'aria', 'sm4', 'salsa20'];
+  // ✅ AJOUT : Afficher les champs crypto pour les 4 algorithmes réels
+  const cryptoAlgos = ['aes256', 'xchacha20', 'chacha20', 'salsa20'];
   const isCrypto = cryptoAlgos.includes(s);
   $("hexCryptoWrap").classList.toggle("hidden", !isCrypto);
   updateStratDesc();
@@ -2393,10 +2443,9 @@ $("hexStrategy").addEventListener("change",()=>{
 updateStratDesc();
 
 // Créer une variante
-$("hexCreateVariant").addEventListener("click",async()=>{
+$("hexCreateVariant").addEventListener("click",async function(){
   const offs=hexSelectedOffsets();
   if(offs.length===0){alert("Sélectionne d'abord des lignes (active les cases).");return;}
-
   const strategy=$("hexStrategy").value;
   const customValue=$("hexStratValue").value;
   const xorKey=$("hexXorKey").value;
@@ -2413,7 +2462,6 @@ $("hexCreateVariant").addEventListener("click",async()=>{
   const id=(hexVariantCounter++)+1;
   const name=hexFileNameStr.replace(/(\.\w+)$/,`_test${String(id).padStart(3,"0")}$1`)||`test_${String(id).padStart(3,"0")}.bin`;
 
-  // Diff
   const diffs=[];
   for(let i=0;i<variantBytes.length;i++){
     if(variantBytes[i]!==hexBytes[i]){
@@ -2422,13 +2470,12 @@ $("hexCreateVariant").addEventListener("click",async()=>{
     }
   }
 
-  // Quels blocs ont été modifiés (B1, B17…) selon la taille de bloc courante
   const modBlocks=new Set();
   offs.forEach(o=>{ modBlocks.add(Math.floor(o/hexBlockSize)+1); });
   const blocksLabel=[...modBlocks].sort((a,b)=>a-b).map(n=>"B"+n).join(" ");
 
   // Détecter si c'est un algorithme de chiffrement pour l'affichage
-  const cryptoAlgos = ['aes256', 'xchacha20', 'chacha20', 'camellia', 'twofish', 'serpent', 'aria', 'sm4', 'salsa20'];
+  const cryptoAlgos = ['aes256', 'xchacha20', 'chacha20', 'salsa20'];
   const isCrypto = cryptoAlgos.includes(strategy);
   const cryptoLabel = isCrypto ? '🔐 ' : '';
 
