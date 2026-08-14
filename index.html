@@ -2634,6 +2634,8 @@ function saveHexVariants(){
         blocks: v.blocks, blockSize: v.blockSize, note: v.note, date: v.date,
         fileName: v.fileName, changes,
         origLength: v.bytes ? v.bytes.length : 0,
+        vtDetections: v.vtDetections, vtTotal: v.vtTotal, vtSuspicious: v.vtSuspicious,
+        breakRisk: v.breakRisk,
       };
     });
     localStorage.setItem("hexVariantsLight", JSON.stringify(light));
