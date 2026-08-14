@@ -2399,6 +2399,122 @@ $("hexStrategy").addEventListener("change", () => {
 updateStratDesc();
 
 // ─── Créer une variante ──────────────────────────────────────────────────────
+
+// Évalue le risque qu'un exe ne fonctionne plus après modification.
+// Vérifie TOUTES les zones critiques : en-tête, point d'entrée, code, imports,
+// relocations, tables de sections, répertoires de données.
+function evaluateBreakRisk(bytes, offsets){
+  if(!bytes || bytes[0]!==0x4D || bytes[1]!==0x5A){
+    return {level:"unknown", reason:"Fichier non-PE — impossible d'évaluer"};
+  }
+  try{
+    const peOff=bytes[0x3C]|(bytes[0x3D]<<8)|(bytes[0x3E]<<16)|(bytes[0x3F]<<24);
+    if(bytes[peOff]!==0x50||bytes[peOff+1]!==0x45){
+      return {level:"unknown", reason:"En-tête PE introuvable"};
+    }
+    const numSec=bytes[peOff+6]|(bytes[peOff+7]<<8);
+    const optSize=bytes[peOff+20]|(bytes[peOff+21]<<8);
+    const optOff=peOff+24;
+    const magic=bytes[optOff]|(bytes[optOff+1]<<8);
+    const isPE32Plus=(magic===0x20B);
+    const entryRVA=bytes[optOff+16]|(bytes[optOff+17]<<8)|(bytes[optOff+18]<<16)|(bytes[optOff+19]<<24);
+
+    // Data Directories (imports, relocations…) — position selon PE32/PE32+
+    const ddOff=optOff+(isPE32Plus?112:96);
+    function getDir(idx){
+      const b=ddOff+idx*8;
+      return {rva:bytes[b]|(bytes[b+1]<<8)|(bytes[b+2]<<16)|(bytes[b+3]<<24),
+              size:bytes[b+4]|(bytes[b+5]<<8)|(bytes[b+6]<<16)|(bytes[b+7]<<24)};
+    }
+    const importDir=getDir(1);   // Import Table
+    const iatDir=getDir(12);      // IAT
+    const relocDir=getDir(5);     // Base Relocations
+    const exportDir=getDir(0);    // Export Table
+    const tlsDir=getDir(9);       // TLS (callbacks exécutés au démarrage)
+
+    // Table des sections
+    let secOff=optOff+optSize;
+    const secTableStart=secOff;
+    const sections=[];
+    for(let i=0;i<numSec&&i<20;i++){
+      let name="";
+      for(let j=0;j<8;j++){const c=bytes[secOff+j];if(c>=32&&c<127)name+=String.fromCharCode(c);}
+      name=name.replace(/\0/g,"").trim();
+      const vsize=bytes[secOff+8]|(bytes[secOff+9]<<8)|(bytes[secOff+10]<<16)|(bytes[secOff+11]<<24);
+      const vaddr=bytes[secOff+12]|(bytes[secOff+13]<<8)|(bytes[secOff+14]<<16)|(bytes[secOff+15]<<24);
+      const rawSize=bytes[secOff+16]|(bytes[secOff+17]<<8)|(bytes[secOff+18]<<16)|(bytes[secOff+19]<<24);
+      const rawOff=bytes[secOff+20]|(bytes[secOff+21]<<8)|(bytes[secOff+22]<<16)|(bytes[secOff+23]<<24);
+      const chars=bytes[secOff+36]|(bytes[secOff+37]<<8)|(bytes[secOff+38]<<16)|(bytes[secOff+39]<<24);
+      sections.push({name,vaddr,vsize,rawOff,rawEnd:rawOff+rawSize,exec:!!(chars&0x20000000)});
+      secOff+=40;
+    }
+    const secTableEnd=secOff;
+
+    // Convertit une RVA en offset fichier
+    function rvaToOff(rva){
+      for(const s of sections){ if(rva>=s.vaddr && rva<s.vaddr+s.vsize) return s.rawOff+(rva-s.vaddr); }
+      return -1;
+    }
+    // Un range de la modif recoupe-t-il un range fichier [start,end) ?
+    function hits(start,end){
+      if(start<0||end<=start) return false;
+      return offsets.some(o=>o>=start && o<end);
+    }
+
+    const minOff=Math.min(...offsets), maxOff=Math.max(...offsets);
+    const headerEnd=sections.length>0?Math.min(...sections.map(s=>s.rawOff)):0x400;
+
+    // ── Vérifications par ordre de gravité ──
+
+    // 1. En-tête PE (DOS + PE + optional header)
+    if(minOff<headerEnd){
+      return {level:"high", reason:"Modifie l'en-tête PE — casse quasi certaine"};
+    }
+    // 2. Table des sections
+    if(hits(secTableStart,secTableEnd)){
+      return {level:"high", reason:"Modifie la table des sections — Windows ne pourra plus charger le fichier"};
+    }
+    // 3. Point d'entrée (±64 octets)
+    const epOff=rvaToOff(entryRVA);
+    if(epOff>=0 && offsets.some(o=>Math.abs(o-epOff)<64)){
+      return {level:"high", reason:"Modifie le point d'entrée — l'exe ne démarrera pas"};
+    }
+    // 4. Table d'imports / IAT
+    const impOff=rvaToOff(importDir.rva);
+    if(importDir.rva>0 && impOff>=0 && hits(impOff,impOff+importDir.size)){
+      return {level:"high", reason:"Modifie la table d'imports — l'exe ne trouvera plus ses fonctions Windows"};
+    }
+    const iatOff=rvaToOff(iatDir.rva);
+    if(iatDir.rva>0 && iatOff>=0 && hits(iatOff,iatOff+iatDir.size)){
+      return {level:"high", reason:"Modifie l'IAT (adresses des fonctions) — plantage au démarrage"};
+    }
+    // 5. TLS (callbacks exécutés avant le point d'entrée)
+    const tlsOff=rvaToOff(tlsDir.rva);
+    if(tlsDir.rva>0 && tlsOff>=0 && hits(tlsOff,tlsOff+tlsDir.size)){
+      return {level:"high", reason:"Modifie les callbacks TLS — code exécuté au démarrage, risque élevé"};
+    }
+    // 6. Relocations
+    const relOff=rvaToOff(relocDir.rva);
+    if(relocDir.rva>0 && relOff>=0 && hits(relOff,relOff+relocDir.size)){
+      return {level:"high", reason:"Modifie les relocations — l'exe peut planter au chargement"};
+    }
+    // 7. Table d'exports (pour les DLL surtout)
+    const expOff=rvaToOff(exportDir.rva);
+    if(exportDir.rva>0 && expOff>=0 && hits(expOff,expOff+exportDir.size)){
+      return {level:"med", reason:"Modifie la table d'exports — peut casser une DLL (moins grave pour un exe)"};
+    }
+    // 8. Section de code exécutable
+    const inCode=sections.some(s=>s.exec && ((minOff>=s.rawOff&&minOff<s.rawEnd)||(maxOff>=s.rawOff&&maxOff<s.rawEnd)));
+    if(inCode){
+      return {level:"high", reason:"Modifie du code exécutable (.text) — risque élevé de plantage"};
+    }
+    // 9. Sinon : données/ressources
+    return {level:"low", reason:"Modifie des données/ressources hors zones critiques — bonnes chances de fonctionner"};
+  }catch(e){
+    return {level:"unknown", reason:"Analyse impossible"};
+  }
+}
+
 $("hexCreateVariant").addEventListener("click", async() => {
   const offs = hexSelectedOffsets();
   if(offs.length === 0){ alert("Sélectionne d'abord des lignes (active les cases)."); return; }
@@ -2423,6 +2539,9 @@ $("hexCreateVariant").addEventListener("click", async() => {
   offs.forEach(o => { modBlocks.add(Math.floor(o / hexBlockSize) + 1); });
   const blocksLabel = [...modBlocks].sort((a, b) => a - b).map(n => "B" + n).join(" ");
 
+  // Évaluer le risque de cassure selon où sont les octets modifiés
+  const breakRisk = evaluateBreakRisk(hexBytes, offs);
+
   const isCrypto = ['aes256', 'chacha20', 'xchacha20', 'salsa20'].includes(strategy);
   const cryptoLabel = isCrypto ? '🔐 ' : '';
 
@@ -2437,6 +2556,7 @@ $("hexCreateVariant").addEventListener("click", async() => {
     diffs,
     blocks: blocksLabel,
     blockSize: hexBlockSize,
+    breakRisk,
     note: isCrypto ? `Chiffré avec ${HEX_STRAT_LABELS[strategy]}` : "",
     date: new Date().toLocaleString("fr-FR"),
     fileName: hexFileNameStr
@@ -2528,6 +2648,7 @@ function renderHexVariants(){
         <span><b style="color:#666;">Stratégie :</b> ${HEX_STRAT_LABELS[v.strategy] || v.strategy}</span>
         <span><b style="color:#666;">Octets modifiés :</b> ${v.offsets.length}</span>
         <span><b style="color:#666;">Entropie :</b> <span style="color:#0a7;">${v.entropy}/8</span></span>
+        ${v.breakRisk ? `<span style="grid-column:1 / -1;"><b style="color:#666;">Risque de cassure :</b> ${v.breakRisk.level==='high'?'<span style="color:#c00;font-weight:700;">🔴 Élevé</span>':v.breakRisk.level==='low'?'<span style="color:#0a7;font-weight:700;">🟢 Faible</span>':'<span style="color:#e0a800;font-weight:700;">🟡 Inconnu</span>'} <span style="color:#888;font-size:10px;">— ${v.breakRisk.reason}</span></span>` : ''}
         <span style="grid-column:1 / -1;" title="${v.hash}"><b style="color:#666;">SHA-256 :</b> <span style="color:#0033cc;font-family:monospace;">${v.hash.substring(0,20)}…</span></span>
       </div>
       <div style="margin-bottom:6px;">
