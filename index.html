@@ -472,6 +472,12 @@
         </div>
 
         <!-- Suggestion de blocs sûrs -->
+        <!-- Désassembleur (éducatif) -->
+        <div id="hexDisasmBox" class="hidden" style="margin-bottom:8px;">
+          <button id="hexDisasmBtn" style="width:100%;padding:8px;box-sizing:border-box;font-size:12px;font-weight:600;background:linear-gradient(180deg,#f0e8ff,#dcc8f5);border:1px solid #9b6bd5;border-radius:5px;color:#5a2d9b;cursor:pointer;">🔬 Désassembler le code (voir les instructions)</button>
+          <div id="hexDisasmResult" style="margin-top:6px;"></div>
+        </div>
+
         <div id="hexSafeBlocks" class="hidden" style="margin-bottom:8px;">
           <button id="hexSuggestSafe" style="width:100%;padding:8px;box-sizing:border-box;font-size:12px;font-weight:600;background:linear-gradient(180deg,#e0f5e0,#c5ecc5);border:1px solid #5cb85c;border-radius:5px;color:#1a7a35;cursor:pointer;">🟢 Suggérer les blocs sûrs à modifier</button>
           <div id="hexSafeResult" style="margin-top:6px;"></div>
@@ -511,6 +517,7 @@
           <button id="hexApplyBtn">Appliquer</button>
           <button id="hexResetBtn">Réinitialiser</button>
         </div>
+        <div id="hexByteInfo" style="font-size:11px;color:#555;margin-top:4px;font-family:monospace;background:#f0f4ff;border:1px solid #c5d5ee;border-radius:4px;padding:5px 8px;display:none;"></div>
       </fieldset>
 
       <!-- Stratégies & variantes -->
@@ -1711,6 +1718,7 @@ $("hexFileInput").addEventListener("change",()=>{
     renderHexEntropyMap();
     $("hexSafeBlocks").classList.remove("hidden");
     $("hexSafeResult").innerHTML="";
+    if($("hexDisasmBox")){$("hexDisasmBox").classList.remove("hidden");$("hexDisasmResult").innerHTML="";}
     $("hexEditorBox").classList.remove("hidden");
   };
   r.readAsArrayBuffer(f);
@@ -1825,10 +1833,18 @@ function renderHex(){
   $("hexTable").querySelectorAll(".hex-cell").forEach(cell=>{
     cell.addEventListener("click",()=>{
       hexSelectedOffset=parseInt(cell.dataset.off);
+      const val=hexBytes[hexSelectedOffset];
       $("hexOffsetDisplay").value="0x"+hexSelectedOffset.toString(16).toUpperCase().padStart(8,"0");
-      $("hexValueInput").value=hexBytes[hexSelectedOffset].toString(16).toUpperCase().padStart(2,"0");
+      $("hexValueInput").value=val.toString(16).toUpperCase().padStart(2,"0");
       $("hexTable").querySelectorAll(".hex-cell").forEach(c=>c.classList.remove("selected"));
       cell.classList.add("selected");
+      // Afficher la représentation ASCII de l'octet
+      const ascii=(val>=32&&val<127)?String.fromCharCode(val):"(non affichable)";
+      const info=$("hexByteInfo");
+      if(info){
+        info.style.display="block";
+        info.innerHTML=`Octet à 0x${hexSelectedOffset.toString(16).toUpperCase()} : <b>ASCII</b> ${ascii}`;
+      }
     });
   });
   $("hexTable").querySelectorAll(".hex-linecheck").forEach(cb=>{
@@ -3149,6 +3165,145 @@ loadHexVariants();
 
 // Bouton suggérer les blocs sûrs
 $("hexSuggestSafe").addEventListener("click", suggestSafeBlocks);
+
+// ═══════════════════════════════════════════════════════════════
+// DÉSASSEMBLEUR x86 BASIQUE (éducatif) — traduit les octets du code
+// en instructions lisibles. Analyse statique, n'exécute rien.
+// Gère les instructions les plus courantes ; les rares sont marquées "db".
+// ═══════════════════════════════════════════════════════════════
+const REG32=["eax","ecx","edx","ebx","esp","ebp","esi","edi"];
+const REG8=["al","cl","dl","bl","ah","ch","dh","bh"];
+
+function disasmOne(b, i){
+  // Retourne {text, len, comment} pour l'instruction à la position i
+  const op=b[i];
+  const hex=v=>v.toString(16).toUpperCase().padStart(2,"0");
+  const rel8=()=>{const d=b[i+1];return d<128?d:d-256;};
+  const imm32=()=>b[i+1]|(b[i+2]<<8)|(b[i+3]<<16)|(b[i+4]<<24);
+
+  // Instructions à un octet courantes
+  if(op===0x90) return {text:"nop", len:1, comment:"ne fait rien (No Operation)"};
+  if(op===0xC3) return {text:"ret", len:1, comment:"retourne de la fonction"};
+  if(op===0xCC) return {text:"int3", len:1, comment:"point d'arrêt (breakpoint)"};
+  if(op===0xC9) return {text:"leave", len:1, comment:"restaure la pile en fin de fonction"};
+  if(op>=0x50&&op<=0x57) return {text:`push ${REG32[op-0x50]}`, len:1, comment:"empile un registre"};
+  if(op>=0x58&&op<=0x5F) return {text:`pop ${REG32[op-0x58]}`, len:1, comment:"dépile vers un registre"};
+  if(op>=0x40&&op<=0x47) return {text:`inc ${REG32[op-0x40]}`, len:1, comment:"incrémente (+1)"};
+  if(op>=0x48&&op<=0x4F) return {text:`dec ${REG32[op-0x48]}`, len:1, comment:"décrémente (-1)"};
+
+  // push imm8 / imm32
+  if(op===0x6A) return {text:`push 0x${hex(b[i+1])}`, len:2, comment:"empile une valeur"};
+  if(op===0x68) return {text:`push 0x${imm32().toString(16).toUpperCase()}`, len:5, comment:"empile une valeur 32 bits"};
+
+  // mov reg32, imm32 (B8..BF)
+  if(op>=0xB8&&op<=0xBF){
+    return {text:`mov ${REG32[op-0xB8]}, 0x${(imm32()>>>0).toString(16).toUpperCase()}`, len:5, comment:"charge une valeur dans un registre"};
+  }
+  // mov reg8, imm8 (B0..B7)
+  if(op>=0xB0&&op<=0xB7){
+    return {text:`mov ${REG8[op-0xB0]}, 0x${hex(b[i+1])}`, len:2, comment:"charge une valeur 8 bits"};
+  }
+
+  // Sauts conditionnels courts (70..7F)
+  const jcc={0x74:"je",0x75:"jne",0x72:"jb",0x73:"jae",0x76:"jbe",0x77:"ja",
+             0x7C:"jl",0x7D:"jge",0x7E:"jle",0x7F:"jg",0xEB:"jmp"};
+  if(jcc[op]!==undefined){
+    const d=rel8();
+    const target=(i+2+d)>>>0;
+    const cmt={je:"saute si égal",jne:"saute si différent",jb:"saute si inférieur",
+      jae:"saute si supérieur ou égal",jbe:"saute si inférieur ou égal",ja:"saute si supérieur",
+      jl:"saute si plus petit (signé)",jge:"saute si ≥ (signé)",jle:"saute si ≤ (signé)",
+      jg:"saute si plus grand (signé)",jmp:"saut inconditionnel"}[jcc[op]];
+    return {text:`${jcc[op]} 0x${target.toString(16).toUpperCase()}`, len:2, comment:cmt};
+  }
+
+  // call rel32 (E8)
+  if(op===0xE8){
+    const d=imm32();
+    const target=(i+5+d)>>>0;
+    return {text:`call 0x${target.toString(16).toUpperCase()}`, len:5, comment:"appelle une fonction"};
+  }
+  // jmp rel32 (E9)
+  if(op===0xE9){
+    const d=imm32();
+    const target=(i+5+d)>>>0;
+    return {text:`jmp 0x${target.toString(16).toUpperCase()}`, len:5, comment:"saut long inconditionnel"};
+  }
+  // call/jmp indirect via [mem] (FF /2, FF /4)
+  if(op===0xFF && b[i+1]!==undefined){
+    const modrm=b[i+1];
+    const reg=(modrm>>3)&7;
+    if(reg===2) return {text:`call [0x${imm32? (b[i+2]|(b[i+3]<<8)|(b[i+4]<<16)|(b[i+5]<<24))>>>0 : 0}]`, len:6, comment:"appel indirect (via table d'imports souvent)"};
+    if(reg===4) return {text:`jmp [...]`, len:6, comment:"saut indirect"};
+  }
+
+  // int n
+  if(op===0xCD) return {text:`int 0x${hex(b[i+1])}`, len:2, comment:"interruption logicielle"};
+
+  // Inconnu → afficher l'octet brut
+  return {text:`db 0x${hex(op)}`, len:1, comment:"octet non décodé (donnée ou instruction rare)"};
+}
+
+function disassembleCode(){
+  if(!hexBytes){return;}
+  // Trouver la section de code (.text) et son offset fichier
+  let codeStart=-1, codeSize=0, codeName="";
+  try{
+    if(hexBytes[0]===0x4D&&hexBytes[1]===0x5A){
+      const peOff=hexBytes[0x3C]|(hexBytes[0x3D]<<8)|(hexBytes[0x3E]<<16)|(hexBytes[0x3F]<<24);
+      const numSec=hexBytes[peOff+6]|(hexBytes[peOff+7]<<8);
+      const optSize=hexBytes[peOff+20]|(hexBytes[peOff+21]<<8);
+      let secOff=peOff+24+optSize;
+      for(let s=0;s<numSec;s++){
+        let name="";
+        for(let j=0;j<8;j++){const c=hexBytes[secOff+j];if(c>=32&&c<127)name+=String.fromCharCode(c);}
+        name=name.replace(/\0/g,"").trim();
+        const rawSize=hexBytes[secOff+16]|(hexBytes[secOff+17]<<8)|(hexBytes[secOff+18]<<16)|(hexBytes[secOff+19]<<24);
+        const rawOff=hexBytes[secOff+20]|(hexBytes[secOff+21]<<8)|(hexBytes[secOff+22]<<16)|(hexBytes[secOff+23]<<24);
+        const chars=hexBytes[secOff+36]|(hexBytes[secOff+37]<<8)|(hexBytes[secOff+38]<<16)|(hexBytes[secOff+39]<<24);
+        if(chars&0x20000000){ codeStart=rawOff; codeSize=rawSize; codeName=name; break; }
+        secOff+=40;
+      }
+    }
+  }catch(e){}
+
+  const box=$("hexDisasmResult");
+  if(codeStart<0){
+    box.innerHTML=`<div style="font-size:11px;color:#c00;padding:6px;">Section de code (.text) introuvable — ce fichier n'a pas de code exécutable analysable.</div>`;
+    return;
+  }
+
+  // Désassembler jusqu'à 60 instructions ou la fin de la section
+  let out=[], pos=codeStart, count=0;
+  const end=Math.min(codeStart+codeSize, hexBytes.length);
+  while(pos<end && count<60){
+    const ins=disasmOne(hexBytes, pos);
+    out.push({off:pos, bytes:Array.from(hexBytes.slice(pos,pos+ins.len)), text:ins.text, comment:ins.comment});
+    pos+=ins.len; count++;
+  }
+
+  let html=`<div style="border:1px solid #9b6bd5;border-radius:5px;padding:8px;background:#faf7ff;">`;
+  html+=`<div style="font-size:11px;color:#5a2d9b;font-weight:600;margin-bottom:6px;">🔬 Code désassemblé — section ${codeName} (${out.length} instructions)</div>`;
+  html+=`<div style="font-size:10px;color:#888;margin-bottom:6px;">Chaque ligne : offset · octets · instruction · explication. Analyse statique (le code n'est pas exécuté).</div>`;
+  html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;min-width:480px;">`;
+  html+=`<tr style="background:#e8ddf5;"><th style="padding:3px 6px;text-align:left;">Offset</th><th style="padding:3px 6px;text-align:left;">Octets</th><th style="padding:3px 6px;text-align:left;">Instruction</th><th style="padding:3px 6px;text-align:left;">Explication</th></tr>`;
+  out.forEach(o=>{
+    const bytesStr=o.bytes.map(x=>x.toString(16).toUpperCase().padStart(2,"0")).join(" ");
+    html+=`<tr style="border-bottom:1px solid #eee;">
+      <td style="padding:3px 6px;color:#888;">0x${o.off.toString(16).toUpperCase()}</td>
+      <td style="padding:3px 6px;color:#666;">${bytesStr}</td>
+      <td style="padding:3px 6px;color:#5a2d9b;font-weight:600;">${o.text}</td>
+      <td style="padding:3px 6px;color:#555;font-family:sans-serif;font-size:10px;">${o.comment}</td>
+    </tr>`;
+  });
+  html+=`</table></div>`;
+  html+=`<div style="font-size:10px;color:#888;margin-top:6px;font-style:italic;">Désassembleur basique : gère les instructions courantes. Les octets marqués "db" sont soit des données, soit des instructions rares non décodées.</div>`;
+  html+=`</div>`;
+  box.innerHTML=html;
+  log(`Code désassemblé : ${out.length} instructions dans ${codeName}`);
+}
+
+$("hexDisasmBtn").addEventListener("click", disassembleCode);
 
 // ═══════════════════════════════════════════════════════════════
 // ANALYSE DÉFENSIVE — détection en lecture seule (ne modifie rien)
