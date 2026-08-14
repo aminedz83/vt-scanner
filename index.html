@@ -2947,7 +2947,23 @@ function generateTestPE(){
   let sum = 0, carry = 0;
   for(let i = 0; i < buf.length - 1; i += 2){ sum += ((buf[i+1] << 8) | buf[i]) + carry; carry = sum >>> 16; sum &= 0xffff; }
   sum = (sum + carry) & 0xffff; const cs = (sum + buf.length) >>> 0; w32(OPT+64, cs);
-  return buf;
+
+  // Agrandir à ~15 Ko en ajoutant des données variées après le contenu existant
+  // (zone de données supplémentaire — n'affecte pas les structures critiques)
+  const bigBuf = new Uint8Array(15360); // 15 Ko
+  bigBuf.set(buf, 0);
+  // Remplir la zone ajoutée avec des données variées (simule du contenu réel)
+  for(let i = buf.length; i < bigBuf.length; i++){
+    bigBuf[i] = (i * 37 + 11) % 256;
+  }
+  // Quelques chaînes lisibles dispersées pour le réalisme
+  const extraStrings = ["Data section content", "test_sample build 2024", "Sample resource block", "Configuration values"];
+  let eOff = buf.length + 64;
+  for(const s of extraStrings){
+    for(let i = 0; i < s.length; i++) bigBuf[eOff + i] = s.charCodeAt(i);
+    eOff += 512;
+  }
+  return bigBuf;
 }
 
 $("hexLoadTestBtn").addEventListener("click", () => {
