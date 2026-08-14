@@ -2956,7 +2956,27 @@ function generateTestPE(){
   const mOff = 0x650;
   for(let i = 0; i < manifest.length && mOff + i < buf.length; i++) buf[mOff + i] = manifest.charCodeAt(i);
 
-  buf[0x400] = 0xC3;
+  // Vraie petite fonction de démonstration avec instructions x86 variées
+  // (calcule une somme, compare, saute — pour illustrer le désassemblage)
+  const code = [
+    0x55,                    // push ebp
+    0x89, 0xE5,              // mov ebp, esp
+    0xB8, 0x05, 0x00, 0x00, 0x00,  // mov eax, 5
+    0xBB, 0x03, 0x00, 0x00, 0x00,  // mov ebx, 3
+    0x01, 0xD8,              // add eax, ebx  (eax = eax + ebx)
+    0x83, 0xF8, 0x08,        // cmp eax, 8
+    0x74, 0x05,              // je +5  (saute si égal à 8)
+    0xB8, 0x00, 0x00, 0x00, 0x00,  // mov eax, 0
+    0x40,                    // inc eax
+    0x48,                    // dec eax
+    0x50,                    // push eax
+    0x58,                    // pop eax
+    0x90,                    // nop
+    0xE8, 0x00, 0x00, 0x00, 0x00,  // call (relatif)
+    0x5D,                    // pop ebp
+    0xC3,                    // ret
+  ];
+  for(let i = 0; i < code.length; i++) buf[0x400 + i] = code[i];
   const strings = ["TestApp v1.0", "Copyright 2024", "example.com"];
   let sOff = 0x800;
   for(const s of strings){ for(let i = 0; i < s.length; i++) buf[sOff + i] = s.charCodeAt(i); sOff += s.length + 2; }
@@ -2997,6 +3017,7 @@ $("hexLoadTestBtn").addEventListener("click", () => {
   if(typeof renderHexSectionMap==="function") renderHexSectionMap();
   if(typeof renderHexEntropyMap==="function") renderHexEntropyMap();
   if($("hexSafeBlocks")) $("hexSafeBlocks").classList.remove("hidden");
+  if($("hexDisasmBox")){$("hexDisasmBox").classList.remove("hidden");$("hexDisasmResult").innerHTML="";}
   $("hexEditorBox").classList.remove("hidden");
   // Télécharger aussi le fichier pour pouvoir le charger ailleurs via Parcourir
   downloadBytes(hexBytes, "test_sample.exe");
@@ -3202,6 +3223,36 @@ function disasmOne(b, i){
   // mov reg8, imm8 (B0..B7)
   if(op>=0xB0&&op<=0xB7){
     return {text:`mov ${REG8[op-0xB0]}, 0x${hex(b[i+1])}`, len:2, comment:"charge une valeur 8 bits"};
+  }
+
+  // Instructions à 2 octets avec ModRM (mov/add/sub/cmp/or/and/xor reg,reg)
+  const modrmOp={0x89:"mov",0x8B:"mov",0x01:"add",0x03:"add",0x29:"sub",0x2B:"sub",
+                 0x39:"cmp",0x3B:"cmp",0x31:"xor",0x21:"and",0x09:"or",0x85:"test"};
+  if(modrmOp[op]!==undefined && b[i+1]!==undefined){
+    const modrm=b[i+1];
+    const mod=(modrm>>6)&3;
+    const reg=(modrm>>3)&7;
+    const rm=modrm&7;
+    if(mod===3){ // registre vers registre
+      // Sens selon l'opcode (pair = rm<-reg, impair = reg<-rm en général)
+      const dst=(op&2)?REG32[reg]:REG32[rm];
+      const src=(op&2)?REG32[rm]:REG32[reg];
+      const cmt={mov:"copie une valeur",add:"addition",sub:"soustraction",
+        cmp:"compare (pour un saut ensuite)",xor:"OU exclusif",and:"ET binaire",
+        or:"OU binaire",test:"test binaire (pour un saut)"}[modrmOp[op]];
+      return {text:`${modrmOp[op]} ${dst}, ${src}`, len:2, comment:cmt};
+    }
+  }
+
+  // cmp/add/sub reg, imm8 (83 /r ib)
+  if(op===0x83 && b[i+1]!==undefined){
+    const modrm=b[i+1];
+    const reg=(modrm>>3)&7;
+    const rm=modrm&7;
+    const sub={0:"add",1:"or",4:"and",5:"sub",7:"cmp"}[reg]||"op";
+    const cmt={add:"addition",sub:"soustraction",cmp:"compare (pour un saut ensuite)",
+      and:"ET binaire",or:"OU binaire"}[sub]||"opération";
+    return {text:`${sub} ${REG32[rm]}, 0x${hex(b[i+2])}`, len:3, comment:cmt};
   }
 
   // Sauts conditionnels courts (70..7F)
