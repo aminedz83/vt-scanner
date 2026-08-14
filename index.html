@@ -132,7 +132,7 @@
     <div class="tab active"  onclick="switchTab('vt')">🛡️ VirusTotal</div>
     <div class="tab"         onclick="switchTab('pe')">🔧 Éditeur PE</div>
     <div class="tab"         onclick="switchTab('hex')">💾 Éditeur Hex</div>
-    <div class="tab"         onclick="switchTab('defense')">🛡️ Défense</div>
+    <div class="tab"         onclick="switchTab('defense')">🕵️ Défense</div>
     <div class="tab"         onclick="switchTab('hist')">📋 Historique</div>
     <div class="tab"         onclick="switchTab('diff')">🔍 Comparaison</div>
   </div>
@@ -582,7 +582,7 @@
   <!-- ── DÉFENSE / ANALYSE DES PROTECTIONS ────────────────────── -->
   <div class="tab-content" id="tab-defense">
     <fieldset>
-      <legend>🛡️ Analyse des protections (lecture seule)</legend>
+      <legend>🕵️ Analyse des protections (lecture seule)</legend>
       <div style="font-size:11px;color:#555;margin-bottom:10px;">
         Charge un fichier .exe/.dll pour détecter les protections et la cryptographie qu'il contient : packers, chiffrement, sections suspectes, constantes crypto. L'analyse ne modifie rien.
       </div>
@@ -2986,6 +2986,10 @@ const CRYPTO_SIGNATURES=[
   // ── ChaCha20 / XChaCha20 ──
   {algo:"ChaCha20 / XChaCha20", type:"constante sigma", bytes:[0x65,0x78,0x70,0x61,0x6E,0x64,0x20,0x33,0x32,0x2D,0x62,0x79,0x74,0x65,0x20,0x6B]}, // "expand 32-byte k"
   {algo:"ChaCha20 / XChaCha20", type:"sigma (mots)", bytes:[0x61,0x70,0x78,0x65]}, // "apxe" — fragment little-endian du 1er mot d'état
+  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl16", bytes:[0xC1,0xC0,0x10]}, // rol reg,16 — rotation typique du QR ChaCha
+  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl12", bytes:[0xC1,0xC0,0x0C]}, // rol reg,12
+  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl8", bytes:[0xC1,0xC0,0x08]}, // rol reg,8
+  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl7", bytes:[0xC1,0xC0,0x07]}, // rol reg,7
   // ── Salsa20 ──
   {algo:"Salsa20", type:"constante tau", bytes:[0x65,0x78,0x70,0x61,0x6E,0x64,0x20,0x31,0x36,0x2D,0x62,0x79,0x74,0x65,0x20,0x6B]}, // "expand 16-byte k"
   // ── AES / Rijndael ──
@@ -3109,8 +3113,8 @@ function analyzeDefense(bytes, filename){
       }
     }catch(err){}
 
-    sections.filter(s=>s.ent>7.2).forEach(s=>{
-      alerts.push({level:"med",text:`Section <b>${s.name}</b> à très haute entropie (${s.ent.toFixed(2)}/8) — probablement compressée ou chiffrée`});
+    sections.filter(s=>s.ent>7.0).forEach(s=>{
+      alerts.push({level:"med",text:`Section <b>${s.name}</b> à haute entropie (${s.ent.toFixed(2)}/8, >7.0) — probablement compressée ou chiffrée`});
     });
     sections.filter(s=>s.exec&&s.write).forEach(s=>{
       alerts.push({level:"med",text:`Section <b>${s.name}</b> exécutable ET modifiable (RWX) — peut indiquer du code auto-modifiant`});
@@ -3132,6 +3136,44 @@ function analyzeDefense(bytes, filename){
   if(maxInt3>=32) alerts.push({level:"med",text:`Longue série d'INT3 (${maxInt3} octets 0xCC)`});
   if(maxNop<32&&maxInt3<32) alerts.push({level:"ok",text:"Pas de motif de junk code évident"});
 
+  // 4b. Détection de traces de stratégies de modification
+  const stratTraces=[];
+  // Longues séries d'un même octet (NOP/zéros/FF/INT3/custom uniforme)
+  let runByte=-1,runLen=0,maxRun=0,maxRunByte=-1;
+  for(let i=0;i<bytes.length;i++){
+    if(bytes[i]===runByte){runLen++;if(runLen>maxRun){maxRun=runLen;maxRunByte=runByte;}}
+    else{runByte=bytes[i];runLen=1;}
+  }
+  if(maxRun>=48 && maxRunByte!==0x90 && maxRunByte!==0xCC){
+    const bn=maxRunByte.toString(16).toUpperCase().padStart(2,"0");
+    stratTraces.push(`Longue série de 0x${bn} (${maxRun} octets) — trace possible de remplissage (Zéros/FF/valeur fixe)`);
+  }
+  // Séquence croissante 00 01 02 03… (stratégie "seq")
+  let seqLen=0,maxSeq=0;
+  for(let i=1;i<bytes.length;i++){
+    if(bytes[i]===((bytes[i-1]+1)&0xFF)){seqLen++;maxSeq=Math.max(maxSeq,seqLen);}else seqLen=0;
+  }
+  if(maxSeq>=24) stratTraces.push(`Séquence croissante détectée (${maxSeq+1} octets 00 01 02…) — trace possible de la stratégie "Séquence"`);
+  // Motif répétitif court (2-8 octets qui se répètent)
+  function detectRepeatingPattern(){
+    for(let plen=2;plen<=8;plen++){
+      let reps=0,maxReps=0;
+      for(let i=plen;i<Math.min(bytes.length,50000);i++){
+        if(bytes[i]===bytes[i-plen]){reps++;maxReps=Math.max(maxReps,reps);}else reps=0;
+      }
+      if(maxReps>=plen*8) return {plen,reps:maxReps};
+    }
+    return null;
+  }
+  const pat=detectRepeatingPattern();
+  if(pat) stratTraces.push(`Motif répétitif de ${pat.plen} octets détecté — trace possible de la stratégie "Motif répétitif"`);
+
+  if(stratTraces.length>0){
+    stratTraces.forEach(t=>alerts.push({level:"med",text:`🔧 ${t}`}));
+  }else{
+    alerts.push({level:"ok",text:"Aucune trace évidente de stratégie de modification (motif, séquence, remplissage)"});
+  }
+
   // 5. Profil packé
   const globalEnt=hexEntropy(bytes);
   if(sections.length>0 && sections.length<=3 && globalEnt>7){
@@ -3148,6 +3190,45 @@ function analyzeDefense(bytes, filename){
     <span style="font-size:11px;color:#666;">Entropie globale : ${globalEnt.toFixed(2)}/8 · Taille : ${(bytes.length/1024).toFixed(1)} Ko</span>
   </div>`;
 
+  // Bandeau verdict : liste ce qui a été détecté avec détails
+  const detected=[];
+  if(packersFound.length>0) detected.push(`Packer : ${packersFound.join(", ")}`);
+  if(algoKeys.length>0){
+    algoKeys.forEach(algo=>{
+      const hits=cryptoByAlgo[algo];
+      detected.push(`${algo} (${hits.length} signature${hits.length>1?'s':''})`);
+    });
+  }
+  if(cryptoLibs.length>0) detected.push(`Bibliothèque crypto : ${[...new Set(cryptoLibs)].join(", ")}`);
+  if(stratTraces.length>0){
+    stratTraces.forEach(t=>{
+      // Extraire le type court de la trace pour le bandeau
+      let court=t;
+      if(t.includes("Longue série")) court="Remplissage (série d'octets identiques)";
+      else if(t.includes("Séquence croissante")) court="Séquence croissante (00 01 02…)";
+      else if(t.includes("Motif répétitif")) court="Motif répétitif";
+      detected.push(`Trace de stratégie : ${court}`);
+    });
+  }
+  const encSecs=sections.filter(s=>s.ent>7.0);
+  if(encSecs.length>0) detected.push(`${encSecs.length} section(s) chiffrée(s)/compressée(s) : ${encSecs.map(s=>s.name).join(", ")}`);
+  const rwxSecs=sections.filter(s=>s.exec&&s.write);
+  if(rwxSecs.length>0) detected.push(`Section RWX : ${rwxSecs.map(s=>s.name).join(", ")}`);
+
+  if(detected.length>0){
+    html+=`<div style="margin-bottom:12px;padding:10px 12px;background:#e7f1ff;border:2px solid #0033cc;border-radius:6px;">
+      <div style="font-weight:700;color:#0033cc;font-size:13px;margin-bottom:6px;">🔎 Détection trouvée (${detected.length})</div>
+      <ul style="margin:0;padding-left:18px;font-size:12px;color:#333;">
+        ${detected.map(d=>`<li style="margin-bottom:3px;">${d}</li>`).join("")}
+      </ul>
+    </div>`;
+  }else{
+    html+=`<div style="margin-bottom:12px;padding:10px 12px;background:#e8f5e9;border:2px solid #28a745;border-radius:6px;">
+      <div style="font-weight:700;color:#1a7a35;font-size:13px;">✅ Aucune protection ni crypto détectée</div>
+      <div style="font-size:11px;color:#555;margin-top:2px;">Le fichier ne présente pas de signature connue (packer, chiffrement, motif). Rappel : certaines techniques ne laissent aucune trace (voir note en bas).</div>
+    </div>`;
+  }
+
   html+=`<div style="margin-bottom:12px;">`;
   alerts.forEach(a=>{
     const color=a.level==="high"?"#dc3545":a.level==="med"?"#e0a800":"#28a745";
@@ -3161,7 +3242,7 @@ function analyzeDefense(bytes, filename){
     html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px;">`;
     html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">Perms</th><th style="padding:4px 6px;">Taille</th></tr>`;
     sections.forEach(s=>{
-      const entColor=s.ent>7.2?"#c00":s.ent>6.5?"#e0a800":"#0a7";
+      const entColor=s.ent>7.0?"#c00":s.ent>6.5?"#e0a800":"#0a7";
       const perms=(s.read?"R":"-")+(s.write?"W":"-")+(s.exec?"X":"-");
       const permWarn=(s.exec&&s.write)?' style="color:#c00;font-weight:700;"':'';
       html+=`<tr style="border-bottom:1px solid #eee;">
@@ -3172,8 +3253,18 @@ function analyzeDefense(bytes, filename){
       </tr>`;
     });
     html+=`</table></div>`;
-    html+=`<div style="font-size:10px;color:#888;margin-top:4px;">Point d'entrée : 0x${entryPoint.toString(16).toUpperCase()} (section ${epSection}) · Entropie : ✅ &lt;6.5 · 🟡 6.5-7.2 · 🔴 &gt;7.2</div>`;
+    html+=`<div style="font-size:10px;color:#888;margin-top:4px;">Point d'entrée : 0x${entryPoint.toString(16).toUpperCase()} (section ${epSection}) · Entropie : ✅ &lt;6.5 · 🟡 6.5-7.0 · 🔴 &gt;7.0</div>`;
   }
+
+  // Note explicative : stratégies détectables vs non détectables
+  html+=`<div style="margin-top:14px;padding:10px;background:#eef3fb;border:1px solid #c5d5ee;border-radius:6px;font-size:11px;color:#444;">
+    <div style="font-weight:600;color:#0033cc;margin-bottom:6px;">ℹ️ Ce que la détection peut voir (et ne peut pas voir)</div>
+    <div style="margin-bottom:4px;"><b style="color:#0a7;">✅ Détectables</b> — laissent une trace reconnaissable :</div>
+    <div style="margin-left:8px;margin-bottom:6px;">NOP, INT3, Zéros, FF, valeur fixe (séries) · Motif répétitif · Séquence (00 01 02…) · zones à haute entropie (XOR/Aléatoire/Entropie repérables comme anomalie)</div>
+    <div style="margin-bottom:4px;"><b style="color:#c00;">❌ Non détectables</b> — ne laissent aucune trace exploitable sans le fichier original :</div>
+    <div style="margin-left:8px;">Miroir · Shuffle · ROL · ROR · Swap nibbles · Incrément · Décrément · NOT · Add/Sub constante</div>
+    <div style="margin-top:6px;font-style:italic;color:#888;">Ces transformations réorganisent ou modifient les octets sans motif régulier — impossible de les identifier par analyse statique seule.</div>
+  </div>`;
 
   box.innerHTML=html;
 }
