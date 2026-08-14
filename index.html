@@ -471,6 +471,12 @@
           </div>
         </div>
 
+        <!-- Suggestion de blocs sûrs -->
+        <div id="hexSafeBlocks" class="hidden" style="margin-bottom:8px;">
+          <button id="hexSuggestSafe" style="width:100%;padding:8px;box-sizing:border-box;font-size:12px;font-weight:600;background:linear-gradient(180deg,#e0f5e0,#c5ecc5);border:1px solid #5cb85c;border-radius:5px;color:#1a7a35;cursor:pointer;">🟢 Suggérer les blocs sûrs à modifier</button>
+          <div id="hexSafeResult" style="margin-top:6px;"></div>
+        </div>
+
         <div id="hexSelPanel" style="margin-bottom:8px;">
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
             <label style="font-weight:600;color:#555;font-size:11px;">SÉLECTION :</label>
@@ -1703,6 +1709,8 @@ $("hexFileInput").addEventListener("change",()=>{
     renderHex();
     renderHexSectionMap();
     renderHexEntropyMap();
+    $("hexSafeBlocks").classList.remove("hidden");
+    $("hexSafeResult").innerHTML="";
     $("hexEditorBox").classList.remove("hidden");
   };
   r.readAsArrayBuffer(f);
@@ -2400,6 +2408,45 @@ updateStratDesc();
 
 // ─── Créer une variante ──────────────────────────────────────────────────────
 
+// Scanne tous les blocs du fichier et retourne ceux qui sont sûrs à modifier (🟢)
+function suggestSafeBlocks(){
+  if(!hexBytes){return;}
+  const totalBlocks=Math.ceil(hexBytes.length/hexBlockSize);
+  const safe=[], medium=[], risky=[];
+  for(let i=0;i<totalBlocks;i++){
+    const start=i*hexBlockSize;
+    const end=Math.min(start+hexBlockSize,hexBytes.length);
+    // Offsets du bloc
+    const offs=[];
+    for(let o=start;o<end;o++) offs.push(o);
+    const risk=evaluateBreakRisk(hexBytes,offs);
+    if(risk.level==="low") safe.push(i+1);
+    else if(risk.level==="med") medium.push(i+1);
+    else if(risk.level==="high") risky.push(i+1);
+  }
+  const box=$("hexSafeResult");
+  let html="";
+  // Regrouper les numéros consécutifs en plages (B5-B12)
+  function ranges(arr){
+    if(arr.length===0) return "aucun";
+    const r=[]; let s=arr[0], p=arr[0];
+    for(let k=1;k<arr.length;k++){
+      if(arr[k]===p+1){p=arr[k];}
+      else{r.push(s===p?`B${s}`:`B${s}-B${p}`);s=arr[k];p=arr[k];}
+    }
+    r.push(s===p?`B${s}`:`B${s}-B${p}`);
+    return r.join(", ");
+  }
+  html+=`<div style="border:1px solid #5cb85c;border-radius:5px;padding:8px;background:#f5fdf5;font-size:11px;">`;
+  html+=`<div style="margin-bottom:6px;"><b style="color:#1a7a35;">🟢 Blocs sûrs (${safe.length})</b> — modifiables sans casser :<br><span style="font-family:monospace;color:#1a7a35;">${ranges(safe)}</span></div>`;
+  if(medium.length>0) html+=`<div style="margin-bottom:6px;"><b style="color:#e0a800;">🟡 Blocs à risque moyen (${medium.length})</b> :<br><span style="font-family:monospace;color:#b8860b;">${ranges(medium)}</span></div>`;
+  html+=`<div><b style="color:#c00;">🔴 Blocs risqués (${risky.length})</b> — éviter :<br><span style="font-family:monospace;color:#c00;">${ranges(risky)}</span></div>`;
+  html+=`<div style="margin-top:6px;font-size:10px;color:#888;font-style:italic;">Clique sur un bloc 🟢 dans la liste des blocs pour y aller. Les blocs sûrs sont dans les zones de données/ressources.</div>`;
+  html+=`</div>`;
+  box.innerHTML=html;
+  log(`Analyse blocs sûrs : ${safe.length} sûrs, ${medium.length} moyens, ${risky.length} risqués`);
+}
+
 // Évalue le risque qu'un exe ne fonctionne plus après modification.
 // Vérifie TOUTES les zones critiques : en-tête, point d'entrée, code, imports,
 // relocations, tables de sections, répertoires de données.
@@ -3076,6 +3123,9 @@ $("hxStrReplace").addEventListener("click", () => {
 
 try{ localStorage.removeItem("hexVariants"); } catch(e){}
 loadHexVariants();
+
+// Bouton suggérer les blocs sûrs
+$("hexSuggestSafe").addEventListener("click", suggestSafeBlocks);
 
 // ═══════════════════════════════════════════════════════════════
 // ANALYSE DÉFENSIVE — détection en lecture seule (ne modifie rien)
