@@ -2960,8 +2960,13 @@ $("hexLoadTestBtn").addEventListener("click", () => {
   hexPeHighlighted = [];
   detectHexPE();
   renderHex();
+  if(typeof renderHexSectionMap==="function") renderHexSectionMap();
+  if(typeof renderHexEntropyMap==="function") renderHexEntropyMap();
+  if($("hexSafeBlocks")) $("hexSafeBlocks").classList.remove("hidden");
   $("hexEditorBox").classList.remove("hidden");
-  log("EXE de test généré (PE32 valide) — Smart Modify disponible ✅");
+  // Télécharger aussi le fichier pour pouvoir le charger ailleurs via Parcourir
+  downloadBytes(hexBytes, "test_sample.exe");
+  log("EXE de test généré (PE32 valide) et téléchargé — tu peux le charger dans les autres onglets via Parcourir ✅");
 });
 
 function randInt(min, max){ return Math.floor(Math.random() * (max - min + 1)) + min; }
