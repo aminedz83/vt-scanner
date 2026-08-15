@@ -50,6 +50,9 @@
   .hex-cell.selected.modified{background:#4a90d9;color:#fff;}
   .hex-cell.pe-field-hl{background:#d4f0d4;outline:1px solid #5a9b5a;}
   .hex-cell.selected.pe-field-hl{background:#4a90d9;color:#fff;}
+  .hex-cell.mod-suggest{background:#ffd60a;outline:2px solid #e0a800;font-weight:700;animation:modpulse 1s ease-in-out infinite;}
+  @keyframes modpulse{0%,100%{outline-color:#e0a800;}50%{outline-color:#ff8c00;}}
+  .hex-addr.mod-arrow{color:#e0a800;font-weight:700;}
   .hex-row-sel{background:#dbe9ff !important;}
   .hex-row-section-safe{background:#d9f0d9;}
   .hex-row-section-med{background:#fdf0d5;}
@@ -478,6 +481,8 @@
           <div id="hexDisasmResult" style="margin-top:6px;"></div>
           <button id="hexRefBtn" style="width:100%;margin-top:6px;padding:7px;box-sizing:border-box;font-size:11px;font-weight:600;background:linear-gradient(180deg,#fff4e0,#ffe0b0);border:1px solid #d89020;border-radius:5px;color:#8a5000;cursor:pointer;">📖 Tableau des octets → instructions</button>
           <div id="hexRefResult" style="margin-top:6px;"></div>
+          <button id="hexModsBtn" style="width:100%;margin-top:6px;padding:7px;box-sizing:border-box;font-size:11px;font-weight:600;background:linear-gradient(180deg,#e0f0ff,#b8d8f5);border:1px solid #3a7bc0;border-radius:5px;color:#1a4d8a;cursor:pointer;">📋 Modifications possibles dans le code</button>
+          <div id="hexModsResult" style="margin-top:6px;"></div>
         </div>
 
         <div id="hexSafeBlocks" class="hidden" style="margin-bottom:8px;">
@@ -673,6 +678,7 @@ let selectedFile = null;
 let peBytes = null, peOrigBytes = null, peFileNameStr = "", peOffsets = {};
 let hexBytes = null, hexOrigBytes = null, hexFileNameStr = "";
 let hexSelectedOffset = null;
+let hexModHighlight = null; // octet surligné en jaune par l'outil de suggestions
 let history = [];   // [{iter, name, blob, sha256, mods}]
 let startTime = null, timerInt = null;
 
@@ -1823,13 +1829,18 @@ function renderHex(){
       const v=b[o];
       const sel=o===hexSelectedOffset?" selected":"";
       const mod=(hexOrigBytes&&v!==hexOrigBytes[o])?" modified":"";
-      hex+=`<td class="hex-cell${sel}${mod}" data-off="${o}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
+      const modSug=(typeof hexModHighlight!=="undefined"&&hexModHighlight!==null&&o===hexModHighlight)?" mod-suggest":"";
+      hex+=`<td class="hex-cell${sel}${mod}${modSug}" data-off="${o}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
       asc+=(v>=32&&v<127)?String.fromCharCode(v):".";
     }
     const check=hexSelectMode?`<input type="checkbox" class="hex-linecheck" data-row="${off}" ${rowSel?'checked':''}>`:'';
     const sectionCls=inSection?`hex-row-section-${hexSectionRange.risk||'med'}`:'';
     const rowClasses=[rowSel?'hex-row-sel':'',sectionCls].filter(Boolean).join(' ');
-    html+=`<tr class="${rowClasses}"><td class="hex-addr">${check}${addr}</td>${hex}<td class="hex-ascii">${asc}</td></tr>`;
+    // Flèche sur l'offset si l'octet suggéré est sur cette ligne
+    const hasArrow=(typeof hexModHighlight!=="undefined"&&hexModHighlight!==null&&hexModHighlight>=off&&hexModHighlight<off+COLS);
+    const addrCls=hasArrow?"hex-addr mod-arrow":"hex-addr";
+    const arrowMark=hasArrow?"➡️":"";
+    html+=`<tr class="${rowClasses}"><td class="${addrCls}">${check}${arrowMark}${addr}</td>${hex}<td class="hex-ascii">${asc}</td></tr>`;
   }
   $("hexTable").innerHTML=html;
   $("hexTable").querySelectorAll(".hex-cell").forEach(cell=>{
@@ -3482,6 +3493,184 @@ function openDisasmEditor(off, oldLen){
 }
 
 $("hexDisasmBtn").addEventListener("click", disassembleCode);
+
+// ═══════════════════════════════════════════════════════════════
+// MODIFICATIONS POSSIBLES — lit le code et propose des changements
+// avec leur effet (pédagogique). Ne modifie rien, propose seulement.
+// ═══════════════════════════════════════════════════════════════
+function suggestModifications(){
+  if(!hexBytes){return;}
+  const box=$("hexModsResult");
+  if(box.innerHTML){ box.innerHTML=""; return; } // toggle
+
+  // Analyser toutes les sections
+  let codeStart=-1, codeSize=0, headerEnd=0x400;
+  const sections=[];
+  try{
+    if(hexBytes[0]===0x4D&&hexBytes[1]===0x5A){
+      const peOff=hexBytes[0x3C]|(hexBytes[0x3D]<<8)|(hexBytes[0x3E]<<16)|(hexBytes[0x3F]<<24);
+      const numSec=hexBytes[peOff+6]|(hexBytes[peOff+7]<<8);
+      const optSize=hexBytes[peOff+20]|(hexBytes[peOff+21]<<8);
+      let secOff=peOff+24+optSize;
+      for(let s=0;s<numSec;s++){
+        let name="";
+        for(let j=0;j<8;j++){const c=hexBytes[secOff+j];if(c>=32&&c<127)name+=String.fromCharCode(c);}
+        name=name.replace(/\0/g,"").trim();
+        const rawSize=hexBytes[secOff+16]|(hexBytes[secOff+17]<<8)|(hexBytes[secOff+18]<<16)|(hexBytes[secOff+19]<<24);
+        const rawOff=hexBytes[secOff+20]|(hexBytes[secOff+21]<<8)|(hexBytes[secOff+22]<<16)|(hexBytes[secOff+23]<<24);
+        const chars=hexBytes[secOff+36]|(hexBytes[secOff+37]<<8)|(hexBytes[secOff+38]<<16)|(hexBytes[secOff+39]<<24);
+        sections.push({name,rawOff,rawSize,exec:!!(chars&0x20000000)});
+        if(chars&0x20000000 && codeStart<0){ codeStart=rawOff; codeSize=rawSize; }
+        secOff+=40;
+      }
+      if(sections.length>0) headerEnd=Math.min(...sections.map(s=>s.rawOff));
+    }
+  }catch(e){}
+
+  let html=`<div style="border:1px solid #3a7bc0;border-radius:5px;padding:8px;background:#f5f9ff;">`;
+  html+=`<div style="font-size:11px;color:#1a4d8a;font-weight:600;margin-bottom:6px;">📋 Modifications possibles (tout le fichier)</div>`;
+  html+=`<div style="font-size:10px;color:#888;margin-bottom:8px;">L'outil a balayé le fichier. 👁️ Clique une proposition pour la voir surlignée en jaune dans la grille.</div>`;
+
+  // ══ 1. CODE (.text) — instructions ══
+  html+=`<div style="font-weight:600;color:#5a2d9b;font-size:11px;margin:8px 0 4px;">🔬 Code (.text) — instructions <span style="color:#0a7;">🟢 modifiable</span></div>`;
+  const codeMods=[];
+  if(codeStart>=0){
+    let pos=codeStart, count=0;
+    const end=Math.min(codeStart+codeSize, hexBytes.length);
+    while(pos<end && count<40){
+      const ins=disasmOne(hexBytes, pos);
+      const op=hexBytes[pos];
+      const suggestions=[];
+      if(op===0x01) suggestions.push({to:"29", effect:"add → sub (soustraction)"});
+      else if(op===0x29) suggestions.push({to:"01", effect:"sub → add (addition)"});
+      else if(op===0x74){ suggestions.push({to:"75", effect:"je → jne (condition inversée)"}); }
+      else if(op===0x75) suggestions.push({to:"74", effect:"jne → je (condition inversée)"});
+      else if(op>=0x40&&op<=0x47){ suggestions.push({to:(0x48+(op-0x40)).toString(16).toUpperCase().padStart(2,"0"), effect:"inc → dec"}); suggestions.push({to:"90", effect:"→ nop (annuler)"}); }
+      else if(op>=0x48&&op<=0x4F) suggestions.push({to:(0x40+(op-0x48)).toString(16).toUpperCase().padStart(2,"0"), effect:"dec → inc"});
+      else if(op>=0x50&&op<=0x57) suggestions.push({to:"90", effect:"push → nop (annuler)"});
+      else if(op===0x55) suggestions.push({to:"90", effect:"push ebp → nop"});
+      if(suggestions.length>0){ codeMods.push({off:pos, instr:ins.text, bytes:Array.from(hexBytes.slice(pos,pos+ins.len)), suggestions}); }
+      pos+=ins.len; count++;
+    }
+  }
+  if(codeMods.length===0){ html+=`<div style="font-size:10px;color:#888;padding-left:8px;">Aucune instruction modifiable trouvée.</div>`; }
+  else codeMods.forEach(m=>{
+    const bs=m.bytes.map(x=>x.toString(16).toUpperCase().padStart(2,"0")).join(" ");
+    html+=`<div style="margin-bottom:6px;padding:5px;background:#fff;border-radius:4px;border:1px solid #d5e5f5;">
+      <div style="font-family:monospace;font-size:10px;color:#5a2d9b;font-weight:600;">0x${m.off.toString(16).toUpperCase()} · ${m.instr} <span style="color:#999;font-weight:400;">(${bs})</span></div>`;
+    m.suggestions.forEach(s=>{
+      html+=`<div class="mod-suggest-item" data-off="${m.off}" data-newval="${s.to}" data-zone="code" style="font-size:10px;color:#555;margin-top:2px;padding:3px 6px;background:#f5f9ff;border-radius:3px;cursor:pointer;border:1px solid #d5e5f5;">👁️ → <span style="font-family:monospace;color:#c0392b;font-weight:600;">${s.to}</span> : ${s.effect}</div>`;
+    });
+    html+=`</div>`;
+  });
+
+  // ══ 2. DONNÉES — textes ASCII ══
+  html+=`<div style="font-weight:600;color:#1a7a35;font-size:11px;margin:10px 0 4px;">📝 Données — textes <span style="color:#0a7;">🟢 modifiable</span></div>`;
+  const strings=[];
+  let curStr="", curStart=-1;
+  const searchEnd=Math.min(hexBytes.length, 60000);
+  for(let i=headerEnd;i<searchEnd;i++){
+    const c=hexBytes[i];
+    if(c>=32&&c<127){ if(curStart<0)curStart=i; curStr+=String.fromCharCode(c); }
+    else { if(curStr.length>=4) strings.push({off:curStart, text:curStr}); curStr=""; curStart=-1; }
+  }
+  if(curStr.length>=4) strings.push({off:curStart, text:curStr});
+  const shownStrings=strings.slice(0,10);
+  if(shownStrings.length===0){ html+=`<div style="font-size:10px;color:#888;padding-left:8px;">Aucun texte lisible trouvé.</div>`; }
+  else shownStrings.forEach(st=>{
+    const firstChar=hexBytes[st.off].toString(16).toUpperCase().padStart(2,"0");
+    html+=`<div class="mod-suggest-item" data-off="${st.off}" data-newval="" data-zone="data" style="margin-bottom:4px;padding:4px 6px;background:#fff;border-radius:4px;border:1px solid #d5eed5;cursor:pointer;font-size:10px;">
+      👁️ <span style="font-family:monospace;color:#1a7a35;">0x${st.off.toString(16).toUpperCase()}</span> · texte : "<b>${st.text.substring(0,30).replace(/</g,"&lt;")}</b>" <span style="color:#888;">— clique pour localiser (modifie chaque octet à la main)</span>
+    </div>`;
+  });
+
+  // ══ 3. EN-TÊTE — champs (avertissement) ══
+  html+=`<div style="font-weight:600;color:#c00;font-size:11px;margin:10px 0 4px;">⚠️ En-tête PE — structures <span style="color:#c00;">🔴 modifier casse le fichier</span></div>`;
+  html+=`<div style="font-size:10px;color:#888;padding:4px 6px;background:#fff5f5;border:1px solid #f5d5d5;border-radius:4px;margin-bottom:6px;">Ces champs sont vitaux. Chaque proposition ci-dessous <b>casse le fichier</b> si appliquée — c'est pour apprendre à quoi sert chaque octet. Clique 👁️ pour localiser.</div>`;
+
+  // Identifier des champs précis de l'en-tête à proposer
+  const headerFields=[];
+  try{
+    const peOff=hexBytes[0x3C]|(hexBytes[0x3D]<<8)|(hexBytes[0x3E]<<16)|(hexBytes[0x3F]<<24);
+    // Signature MZ
+    headerFields.push({off:0, cur:hexBytes[0], to:"00", role:"Signature MZ (4D) — Windows vérifie que le fichier commence par MZ", effect:"casse : plus reconnu comme exécutable"});
+    // e_lfanew (pointeur vers PE)
+    headerFields.push({off:0x3C, cur:hexBytes[0x3C], to:"FF", role:"e_lfanew — dit où commence l'en-tête PE", effect:"casse : Windows ne trouve plus l'en-tête PE"});
+    // Signature PE
+    headerFields.push({off:peOff, cur:hexBytes[peOff], to:"00", role:"Signature PE (50='P') — marque le début de l'en-tête PE", effect:"casse : en-tête PE invalide"});
+    // Machine
+    headerFields.push({off:peOff+4, cur:hexBytes[peOff+4], to:"00", role:"Machine — type de processeur (4C = i386)", effect:"casse : architecture invalide"});
+    // Number of sections
+    headerFields.push({off:peOff+6, cur:hexBytes[peOff+6], to:"FF", role:"Nombre de sections — combien de sections dans le fichier", effect:"casse : Windows lit des sections qui n'existent pas"});
+    // AddressOfEntryPoint (dans optional header)
+    const optOff=peOff+24;
+    headerFields.push({off:optOff+16, cur:hexBytes[optOff+16], to:"FF", role:"Point d'entrée — où commence l'exécution du programme", effect:"casse : le programme démarre au mauvais endroit → plantage"});
+  }catch(e){}
+
+  headerFields.forEach(f=>{
+    const curHex=f.cur.toString(16).toUpperCase().padStart(2,"0");
+    html+=`<div class="mod-suggest-item" data-off="${f.off}" data-newval="${f.to}" data-zone="header" style="margin-bottom:4px;padding:5px 6px;background:#fff;border-radius:4px;border:1px solid #f5d5d5;cursor:pointer;font-size:10px;">
+      👁️ <span style="font-family:monospace;color:#c00;">0x${f.off.toString(16).toUpperCase()}</span> = <b>${curHex}</b> · ${f.role}<br>
+      <span style="color:#c00;margin-left:16px;">→ ${f.to} : 🔴 ${f.effect}</span>
+    </div>`;
+  });
+
+  html+=`</div>`;
+  box.innerHTML=html;
+
+  // Rendre chaque proposition cliquable
+  box.querySelectorAll(".mod-suggest-item").forEach(item=>{
+    item.addEventListener("click",()=>{
+      const off=parseInt(item.dataset.off);
+      const newVal=item.dataset.newval;
+      hexModHighlight=off;
+      const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
+      hexPage=Math.floor(off/pageBytes);
+      renderHex();
+      if(typeof scrollHexToOffset==="function") scrollHexToOffset(off);
+      hexSelectedOffset=off;
+      $("hexOffsetDisplay").value="0x"+off.toString(16).toUpperCase().padStart(8,"0");
+      if(newVal) $("hexValueInput").value=newVal;
+      const info=$("hexByteInfo");
+      if(info){
+        info.style.display="block";
+        const cur=hexBytes[off].toString(16).toUpperCase().padStart(2,"0");
+        const curChar=(hexBytes[off]>=32&&hexBytes[off]<127)?String.fromCharCode(hexBytes[off]):"(non affichable)";
+        // isText = seulement si l'octet est dans une zone de DONNÉES (pas le code, pas l'en-tête)
+        // On se base sur data-zone passé par la proposition cliquée
+        const zone=item.dataset.zone||"";
+        const isText=(zone==="data");
+        const isCode=(zone==="code");
+        const isHeader=(zone==="header");
+        let infoHtml=`<div style="font-weight:600;color:#e0a800;">🟨 Octet surligné à 0x${off.toString(16).toUpperCase()}</div>`+
+          `<div style="font-size:11px;margin-top:2px;">Valeur actuelle : <b style="color:#c00;">${cur}</b>${isText?` (caractère "${curChar}")`:""}${newVal?` → Nouvelle valeur suggérée : <b style="color:#0a7;">${newVal}</b>`:""}</div>`;
+        if(isText){
+          // Table ASCII de référence pour modifier le texte
+          infoHtml+=`<div style="margin-top:6px;padding:6px;background:#f0f8f0;border:1px solid #c5e5c5;border-radius:4px;font-size:10px;">`+
+            `<div style="font-weight:600;color:#1a7a35;margin-bottom:3px;">📝 Modifier ce texte — tape le code de la lettre voulue :</div>`+
+            `<div style="font-family:monospace;color:#555;line-height:1.6;">`+
+            `<b>A</b>=41 <b>B</b>=42 <b>C</b>=43 <b>D</b>=44 <b>E</b>=45 <b>F</b>=46 <b>G</b>=47 <b>H</b>=48<br>`+
+            `<b>I</b>=49 <b>J</b>=4A <b>K</b>=4B <b>L</b>=4C <b>M</b>=4D <b>N</b>=4E <b>O</b>=4F <b>P</b>=50<br>`+
+            `<b>Q</b>=51 <b>R</b>=52 <b>S</b>=53 <b>T</b>=54 <b>U</b>=55 <b>V</b>=56 <b>W</b>=57 <b>X</b>=58<br>`+
+            `<b>Y</b>=59 <b>Z</b>=5A · <b>a</b>=61 <b>b</b>=62... <b>z</b>=7A<br>`+
+            `<b>0</b>=30 <b>1</b>=31 <b>2</b>=32... <b>9</b>=39 · <b>espace</b>=20</div>`+
+            `<div style="color:#888;margin-top:4px;">Ex : pour mettre "A", efface le champ Valeur hex, tape <b>41</b>, clique Appliquer.</div>`+
+            `</div>`;
+        } else if(isCode && newVal){
+          infoHtml+=`<div style="margin-top:6px;padding:6px;background:#f0f4ff;border:1px solid #c5d5ee;border-radius:4px;font-size:10px;color:#555;">🔬 <b>Code</b> — le champ "Valeur hex" est rempli avec <b style="color:#0a7;">${newVal}</b>. Clique "Appliquer" pour changer l'instruction. Le message Avant/Après te montrera le résultat.</div>`;
+        } else if(isHeader && newVal){
+          infoHtml+=`<div style="margin-top:6px;padding:6px;background:#fff5f5;border:1px solid #f5d5d5;border-radius:4px;font-size:10px;color:#c00;">⚠️ <b>En-tête</b> — le champ est rempli avec <b>${newVal}</b>. Si tu cliques "Appliquer", ça <b>casse le fichier</b> (c'est le but pédagogique : voir le risque 🔴 sur la variante).</div>`;
+        } else if(newVal){
+          infoHtml+=`<div style="font-size:10px;color:#888;margin-top:3px;">Le champ "Valeur hex" est rempli avec ${newVal}. Clique "Appliquer".</div>`;
+        }
+        info.innerHTML=infoHtml;
+      }
+    });
+  });
+  log(`Modifications possibles : ${codeMods.length} instructions, ${shownStrings.length} textes`);
+}
+
+$("hexModsBtn").addEventListener("click", suggestModifications);
 
 // Tableau de référence : octets courants → instructions
 const BYTE_REFERENCE=[
