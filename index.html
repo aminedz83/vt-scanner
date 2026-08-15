@@ -2901,7 +2901,8 @@ $("hexApplyBtn").addEventListener("click", () => {
     info.innerHTML =
       `<div style="font-weight:600;color:#5a2d9b;margin-bottom:3px;">🔬 Changement d'instruction :</div>`+
       `<div><b>Avant :</b> <span style="color:#c00;">0x${oldVal.toString(16).toUpperCase().padStart(2,"0")}</span> = ${avant.text} <span style="color:#888;font-family:sans-serif;">(${avant.comment})</span></div>`+
-      `<div><b>Après :</b> <span style="color:#0a7;">0x${val.toString(16).toUpperCase().padStart(2,"0")}</span> = ${apres.text} <span style="color:#888;font-family:sans-serif;">(${apres.comment})</span></div>`;
+      `<div><b>Après :</b> <span style="color:#0a7;">0x${val.toString(16).toUpperCase().padStart(2,"0")}</span> = ${apres.text} <span style="color:#888;font-family:sans-serif;">(${apres.comment})</span></div>`+
+      `<div style="margin-top:6px;padding:5px 8px;background:#fff8e1;border:1px solid #ffc107;border-radius:4px;color:#8a6d00;font-size:10px;font-family:sans-serif;">💾 Pour garder ce changement : "Exporter fichier modifié" ou "Créer variante".</div>`;
   }
 
   renderHex();
@@ -3368,21 +3369,116 @@ function disassembleCode(){
   html+=`<div style="font-size:11px;color:#5a2d9b;font-weight:600;margin-bottom:6px;">🔬 Code désassemblé — section ${codeName} (${out.length} instructions)</div>`;
   html+=`<div style="font-size:10px;color:#888;margin-bottom:6px;">Chaque ligne : offset · octets · instruction · explication. Analyse statique (le code n'est pas exécuté).</div>`;
   html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;min-width:480px;">`;
-  html+=`<tr style="background:#e8ddf5;"><th style="padding:3px 6px;text-align:left;">Offset</th><th style="padding:3px 6px;text-align:left;">Octets</th><th style="padding:3px 6px;text-align:left;">Instruction</th><th style="padding:3px 6px;text-align:left;">Explication</th></tr>`;
+  html+=`<tr style="background:#e8ddf5;"><th style="padding:3px 6px;text-align:left;">Offset</th><th style="padding:3px 6px;text-align:left;">Octets</th><th style="padding:3px 6px;text-align:left;">Instruction</th><th style="padding:3px 6px;text-align:left;">Modifier</th></tr>`;
   out.forEach(o=>{
     const bytesStr=o.bytes.map(x=>x.toString(16).toUpperCase().padStart(2,"0")).join(" ");
     html+=`<tr style="border-bottom:1px solid #eee;">
       <td style="padding:3px 6px;color:#888;">0x${o.off.toString(16).toUpperCase()}</td>
       <td style="padding:3px 6px;color:#666;">${bytesStr}</td>
-      <td style="padding:3px 6px;color:#5a2d9b;font-weight:600;">${o.text}</td>
-      <td style="padding:3px 6px;color:#555;font-family:sans-serif;font-size:10px;">${o.comment}</td>
+      <td style="padding:3px 6px;color:#5a2d9b;font-weight:600;" title="${o.comment}">${o.text}</td>
+      <td style="padding:3px 6px;"><button class="disasm-edit" data-off="${o.off}" data-len="${o.bytes.length}" style="font-size:10px;padding:2px 6px;background:#e8ddf5;border:1px solid #9b6bd5;border-radius:3px;color:#5a2d9b;cursor:pointer;">✏️</button></td>
     </tr>`;
   });
   html+=`</table></div>`;
-  html+=`<div style="font-size:10px;color:#888;margin-top:6px;font-style:italic;">Désassembleur basique : gère les instructions courantes. Les octets marqués "db" sont soit des données, soit des instructions rares non décodées.</div>`;
+  html+=`<div id="disasmEditPanel" style="margin-top:8px;"></div>`;
+  html+=`<div style="font-size:10px;color:#888;margin-top:6px;font-style:italic;">Clique ✏️ pour modifier une instruction. Assembleur basique : gère les instructions courantes.</div>`;
   html+=`</div>`;
   box.innerHTML=html;
+
+  // Rendre les boutons ✏️ cliquables
+  box.querySelectorAll(".disasm-edit").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const off=parseInt(btn.dataset.off);
+      const len=parseInt(btn.dataset.len);
+      openDisasmEditor(off, len);
+    });
+  });
   log(`Code désassemblé : ${out.length} instructions dans ${codeName}`);
+}
+
+// Mini-assembleur : convertit une instruction texte en octets
+// Gère les instructions courantes. Retourne un tableau d'octets ou null.
+function assembleInstruction(text){
+  text=text.trim().toLowerCase().replace(/\s+/g," ");
+  const REG={eax:0,ecx:1,edx:2,ebx:3,esp:4,ebp:5,esi:6,edi:7};
+
+  // Instructions simples 1 octet
+  if(text==="nop") return [0x90];
+  if(text==="ret") return [0xC3];
+  if(text==="int3") return [0xCC];
+  if(text==="leave") return [0xC9];
+
+  // push/pop reg
+  let m=text.match(/^push (\w+)$/);
+  if(m && REG[m[1]]!==undefined) return [0x50+REG[m[1]]];
+  m=text.match(/^pop (\w+)$/);
+  if(m && REG[m[1]]!==undefined) return [0x58+REG[m[1]]];
+
+  // inc/dec reg
+  m=text.match(/^inc (\w+)$/);
+  if(m && REG[m[1]]!==undefined) return [0x40+REG[m[1]]];
+  m=text.match(/^dec (\w+)$/);
+  if(m && REG[m[1]]!==undefined) return [0x48+REG[m[1]]];
+
+  // mov reg, imm  (ex: mov eax, 5  ou  mov eax, 0x10)
+  m=text.match(/^mov (\w+), (0x[0-9a-f]+|\d+)$/);
+  if(m && REG[m[1]]!==undefined){
+    const v=m[2].startsWith("0x")?parseInt(m[2],16):parseInt(m[2],10);
+    return [0xB8+REG[m[1]], v&0xFF, (v>>8)&0xFF, (v>>16)&0xFF, (v>>24)&0xFF];
+  }
+
+  // mov reg, reg
+  m=text.match(/^mov (\w+), (\w+)$/);
+  if(m && REG[m[1]]!==undefined && REG[m[2]]!==undefined){
+    return [0x89, 0xC0 | (REG[m[2]]<<3) | REG[m[1]]];
+  }
+
+  // add/sub/cmp reg, reg
+  const rr={add:0x01,sub:0x29,cmp:0x39,xor:0x31,and:0x21,or:0x09};
+  m=text.match(/^(add|sub|cmp|xor|and|or) (\w+), (\w+)$/);
+  if(m && REG[m[2]]!==undefined && REG[m[3]]!==undefined){
+    return [rr[m[1]], 0xC0 | (REG[m[3]]<<3) | REG[m[2]]];
+  }
+
+  return null; // instruction non reconnue
+}
+
+function openDisasmEditor(off, oldLen){
+  const panel=$("disasmEditPanel");
+  const cur=disasmOne(hexBytes, off);
+  panel.innerHTML=`
+    <div style="border:1px solid #9b6bd5;border-radius:5px;padding:8px;background:#fff;">
+      <div style="font-size:11px;color:#5a2d9b;font-weight:600;margin-bottom:4px;">✏️ Modifier l'instruction à 0x${off.toString(16).toUpperCase()}</div>
+      <div style="font-size:11px;color:#555;margin-bottom:6px;">Actuelle : <b>${cur.text}</b> (${oldLen} octet${oldLen>1?"s":""})</div>
+      <input type="text" id="disasmInput" placeholder="ex: nop, push eax, mov eax, 5" style="width:100%;box-sizing:border-box;padding:6px;font-family:monospace;font-size:12px;margin-bottom:6px;" />
+      <div style="font-size:10px;color:#888;margin-bottom:6px;">Instructions gérées : nop, ret, int3, push/pop reg, inc/dec reg, mov reg imm, mov/add/sub/cmp reg reg</div>
+      <button id="disasmApply" style="padding:6px 12px;font-size:12px;font-weight:600;background:linear-gradient(180deg,#e0f5e0,#c5ecc5);border:1px solid #5cb85c;border-radius:4px;color:#1a7a35;cursor:pointer;">Appliquer</button>
+      <div id="disasmMsg" style="margin-top:6px;font-size:11px;"></div>
+    </div>`;
+  $("disasmInput").focus();
+  $("disasmApply").addEventListener("click",()=>{
+    const txt=$("disasmInput").value;
+    const bytes=assembleInstruction(txt);
+    const msg=$("disasmMsg");
+    if(!bytes){
+      msg.innerHTML=`<span style="color:#c00;">Instruction non reconnue. Essaie : nop, push eax, mov eax, 5…</span>`;
+      return;
+    }
+    if(bytes.length>oldLen){
+      msg.innerHTML=`<span style="color:#c00;">⚠️ La nouvelle instruction (${bytes.length} octets) est plus longue que l'ancienne (${oldLen} octets). Ça décalerait le code suivant et le casserait. Choisis une instruction de même taille ou plus courte.</span>`;
+      return;
+    }
+    // Écrire les octets ; compléter avec des NOP si plus court
+    for(let i=0;i<oldLen;i++){
+      hexBytes[off+i] = i<bytes.length ? bytes[i] : 0x90; // padding NOP
+    }
+    const padInfo = bytes.length<oldLen ? ` (complété avec ${oldLen-bytes.length} NOP)` : "";
+    msg.innerHTML=`<span style="color:#0a7;">✅ Modifié : ${txt}${padInfo}</span>`+
+      `<div style="margin-top:6px;padding:6px 8px;background:#fff8e1;border:1px solid #ffc107;border-radius:4px;color:#8a6d00;font-size:11px;">💾 <b>N'oublie pas d'enregistrer !</b> Ton changement est en mémoire. Pour le garder : descends et clique <b>"Exporter fichier modifié"</b> (télécharge un .exe) ou <b>"Créer variante"</b> (sauvegarde dans l'appli).</div>`;
+    renderHex();
+    // Rafraîchir le désassemblage
+    setTimeout(disassembleCode, 800);
+  });
 }
 
 $("hexDisasmBtn").addEventListener("click", disassembleCode);
