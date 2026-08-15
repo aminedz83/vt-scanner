@@ -53,6 +53,9 @@
   .hex-cell.mod-suggest{background:#ffd60a;outline:2px solid #e0a800;font-weight:700;animation:modpulse 1s ease-in-out infinite;}
   @keyframes modpulse{0%,100%{outline-color:#e0a800;}50%{outline-color:#ff8c00;}}
   .hex-addr.mod-arrow{color:#e0a800;font-weight:700;}
+  .mod-suggest-item.mod-code-item{background:#f5f9ff;}
+  .mod-suggest-item.mod-active{background:#3a7bc0!important;color:#fff!important;border-color:#1a4d8a!important;font-weight:700;box-shadow:0 2px 6px rgba(58,123,192,0.4);}
+  .mod-suggest-item.mod-active span{color:#ffe082!important;}
   .hex-row-sel{background:#dbe9ff !important;}
   .hex-row-section-safe{background:#d9f0d9;}
   .hex-row-section-med{background:#fdf0d5;}
@@ -1804,7 +1807,14 @@ $("hxDllFlagsApply").addEventListener("click",()=>{if(!hexPeOffsets)return;hxWri
 $("hxRecalcChecksum").addEventListener("click",hxRecalcChecksum);
 
 let hexPage=0;
-const HEX_PAGE_ROWS=512, HEX_COLS=16;
+const HEX_PAGE_ROWS=512;
+// 8 octets par ligne sur mobile (évite le défilement horizontal), 16 sur grand écran
+let HEX_COLS = (window.innerWidth <= 520) ? 8 : 16;
+// Réajuster si l'orientation/taille change
+window.addEventListener("resize", ()=>{
+  const newCols = (window.innerWidth <= 520) ? 8 : 16;
+  if(newCols !== HEX_COLS){ HEX_COLS = newCols; if(hexBytes && typeof renderHex==="function") renderHex(); }
+});
 let hexSelectMode=false;
 let hexSelectedRows=new Set();
 let hexVariants=[];
@@ -3371,6 +3381,78 @@ function disasmOne(b, i){
   // int n
   if(op===0xCD) return {text:`int 0x${hex(b[i+1])}`, len:2, comment:"interruption logicielle"};
 
+  // ── Instructions supplémentaires (désassembleur étendu) ──
+  // xchg eax, reg
+  if(op>=0x91&&op<=0x97) return {text:`xchg eax, ${REG32[op-0x90]}`, len:1, comment:"échange deux registres"};
+  // cdq / cwde
+  if(op===0x99) return {text:"cdq", len:1, comment:"étend eax vers edx:eax (avant division)"};
+  if(op===0x98) return {text:"cwde", len:1, comment:"étend ax vers eax"};
+  // test reg, reg (85 /r)
+  if(op===0x85 && b[i+1]!==undefined && ((b[i+1]>>6)&3)===3){
+    const modrm=b[i+1];
+    return {text:`test ${REG32[modrm&7]}, ${REG32[(modrm>>3)&7]}`, len:2, comment:"test binaire (souvent pour vérifier si zéro)"};
+  }
+  // lea reg, [mem] (8D /r) — cas simple
+  if(op===0x8D && b[i+1]!==undefined){
+    const modrm=b[i+1];
+    const reg=(modrm>>3)&7;
+    return {text:`lea ${REG32[reg]}, [...]`, len:2, comment:"charge une adresse (calcul d'adresse)"};
+  }
+  // mov reg, [mem] et mov [mem], reg (89/8B avec mod!=3) — cas mémoire
+  if((op===0x89||op===0x8B) && b[i+1]!==undefined && ((b[i+1]>>6)&3)!==3){
+    const modrm=b[i+1];
+    const reg=(modrm>>3)&7;
+    const rm=modrm&7;
+    let len=2;
+    if((modrm&0xC0)===0x40) len=3; // disp8
+    else if((modrm&0xC0)===0x80) len=6; // disp32
+    if(rm===4) len++; // SIB
+    if(op===0x8B) return {text:`mov ${REG32[reg]}, [${REG32[rm]}...]`, len, comment:"charge depuis la mémoire"};
+    else return {text:`mov [${REG32[rm]}...], ${REG32[reg]}`, len, comment:"écrit en mémoire"};
+  }
+  // add/sub/cmp/and/or/xor eax, imm32 (05/2D/3D/25/0D/35)
+  const eaxImm={0x05:"add",0x2D:"sub",0x3D:"cmp",0x25:"and",0x0D:"or",0x35:"xor"};
+  if(eaxImm[op]!==undefined){
+    const v=imm32()>>>0;
+    return {text:`${eaxImm[op]} eax, 0x${v.toString(16).toUpperCase()}`, len:5, comment:`${eaxImm[op]} avec une valeur`};
+  }
+  // 81 /r : add/sub/cmp/and/or/xor reg, imm32
+  if(op===0x81 && b[i+1]!==undefined){
+    const modrm=b[i+1];
+    const sub={0:"add",1:"or",4:"and",5:"sub",6:"xor",7:"cmp"}[(modrm>>3)&7]||"op";
+    const rm=modrm&7;
+    const v=(b[i+2]|(b[i+3]<<8)|(b[i+4]<<16)|(b[i+5]<<24))>>>0;
+    return {text:`${sub} ${REG32[rm]}, 0x${v.toString(16).toUpperCase()}`, len:6, comment:`${sub} avec une valeur 32 bits`};
+  }
+  // Sauts near conditionnels (0F 8x)
+  if(op===0x0F && b[i+1]!==undefined && (b[i+1]>=0x80&&b[i+1]<=0x8F)){
+    const jcc2={0x84:"je",0x85:"jne",0x82:"jb",0x83:"jae",0x86:"jbe",0x87:"ja",0x8C:"jl",0x8D:"jge",0x8E:"jle",0x8F:"jg"};
+    const name=jcc2[b[i+1]]||"jcc";
+    const d=(b[i+2]|(b[i+3]<<8)|(b[i+4]<<16)|(b[i+5]<<24));
+    const target=(i+6+d)>>>0;
+    return {text:`${name} 0x${target.toString(16).toUpperCase()}`, len:6, comment:"saut conditionnel (longue portée)"};
+  }
+  // 0F AF : imul reg, reg
+  if(op===0x0F && b[i+1]===0xAF && b[i+2]!==undefined){
+    const modrm=b[i+2];
+    return {text:`imul ${REG32[(modrm>>3)&7]}, ${REG32[modrm&7]}`, len:3, comment:"multiplication signée"};
+  }
+  // shl/shr reg, imm8 (C1 /4 /5)
+  if(op===0xC1 && b[i+1]!==undefined){
+    const modrm=b[i+1];
+    const ext=(modrm>>3)&7;
+    const rm=modrm&7;
+    const name={4:"shl",5:"shr",0:"rol",1:"ror",7:"sar"}[ext]||"shift";
+    return {text:`${name} ${REG32[rm]}, ${b[i+2]}`, len:3, comment:"décalage de bits"};
+  }
+  // neg/not/mul/div (F7 /r)
+  if(op===0xF7 && b[i+1]!==undefined){
+    const ext=(b[i+1]>>3)&7;
+    const rm=b[i+1]&7;
+    const name={2:"not",3:"neg",4:"mul",5:"imul",6:"div",7:"idiv"}[ext];
+    if(name) return {text:`${name} ${REG32[rm]}`, len:2, comment:{not:"inverse tous les bits",neg:"négation",mul:"multiplication",imul:"multiplication signée",div:"division",idiv:"division signée"}[name]};
+  }
+
   // Inconnu → afficher l'octet brut
   return {text:`db 0x${hex(op)}`, len:1, comment:"octet non décodé (donnée ou instruction rare)"};
 }
@@ -3407,7 +3489,7 @@ function disassembleCode(){
   // Désassembler jusqu'à 60 instructions ou la fin de la section
   let out=[], pos=codeStart, count=0;
   const end=Math.min(codeStart+codeSize, hexBytes.length);
-  while(pos<end && count<60){
+  while(pos<end && count<200){
     const ins=disasmOne(hexBytes, pos);
     out.push({off:pos, bytes:Array.from(hexBytes.slice(pos,pos+ins.len)), text:ins.text, comment:ins.comment});
     pos+=ins.len; count++;
@@ -3564,39 +3646,54 @@ function suggestModifications(){
     }
   }catch(e){}
 
-  let html=`<div style="border:1px solid #3a7bc0;border-radius:5px;padding:8px;background:#f5f9ff;">`;
-  html+=`<div style="font-size:11px;color:#1a4d8a;font-weight:600;margin-bottom:6px;">📋 Modifications possibles (tout le fichier)</div>`;
-  html+=`<div style="font-size:10px;color:#888;margin-bottom:8px;">L'outil a balayé le fichier. 👁️ Clique une proposition pour la voir surlignée en jaune dans la grille.</div>`;
+  let html=`<div style="border:1px solid #3a7bc0;border-radius:6px;padding:10px;background:#f5f9ff;">`;
+  html+=`<div style="font-size:12px;color:#1a4d8a;font-weight:700;margin-bottom:4px;">📋 Modifications possibles — analyse complète</div>`;
+  html+=`<div style="font-size:10px;color:#666;margin-bottom:8px;padding:5px 7px;background:#e8f0fc;border-radius:4px;">L'outil a balayé tout le fichier et classé chaque zone. Chaque instruction est expliquée (💡). Clique 👁️ sur une proposition : l'octet se surligne en jaune 🟨 dans la grille, la valeur se pré-remplit, tu n'as plus qu'à cliquer "Appliquer".</div>`;
 
   // ══ 1. CODE (.text) — instructions ══
-  html+=`<div style="font-weight:600;color:#5a2d9b;font-size:11px;margin:8px 0 4px;">🔬 Code (.text) — instructions <span style="color:#0a7;">🟢 modifiable</span></div>`;
+  html+=`<div style="font-weight:700;color:#5a2d9b;font-size:11px;margin:8px 0 4px;padding:3px 6px;background:#f0e8ff;border-radius:4px;">🔬 CODE (.text) — instructions <span style="color:#0a7;">🟢 modifiable sans casser</span></div>`;
   const codeMods=[];
   if(codeStart>=0){
     let pos=codeStart, count=0;
     const end=Math.min(codeStart+codeSize, hexBytes.length);
-    while(pos<end && count<40){
+    while(pos<end && count<150){
       const ins=disasmOne(hexBytes, pos);
       const op=hexBytes[pos];
       const suggestions=[];
-      if(op===0x01) suggestions.push({to:"29", effect:"add → sub (soustraction)"});
-      else if(op===0x29) suggestions.push({to:"01", effect:"sub → add (addition)"});
-      else if(op===0x74){ suggestions.push({to:"75", effect:"je → jne (condition inversée)"}); }
-      else if(op===0x75) suggestions.push({to:"74", effect:"jne → je (condition inversée)"});
-      else if(op>=0x40&&op<=0x47){ suggestions.push({to:(0x48+(op-0x40)).toString(16).toUpperCase().padStart(2,"0"), effect:"inc → dec"}); suggestions.push({to:"90", effect:"→ nop (annuler)"}); }
-      else if(op>=0x48&&op<=0x4F) suggestions.push({to:(0x40+(op-0x48)).toString(16).toUpperCase().padStart(2,"0"), effect:"dec → inc"});
-      else if(op>=0x50&&op<=0x57) suggestions.push({to:"90", effect:"push → nop (annuler)"});
-      else if(op===0x55) suggestions.push({to:"90", effect:"push ebp → nop"});
-      if(suggestions.length>0){ codeMods.push({off:pos, instr:ins.text, bytes:Array.from(hexBytes.slice(pos,pos+ins.len)), suggestions}); }
+      let role=""; // ce que fait l'instruction
+
+      if(op===0x01){ role="Additionne deux registres."; suggestions.push({to:"29", effect:"add → sub (soustraction au lieu d'addition)"}); }
+      else if(op===0x29){ role="Soustrait deux registres."; suggestions.push({to:"01", effect:"sub → add (addition au lieu de soustraction)"}); }
+      else if(op===0x74){ role="Saute si le résultat de la comparaison est égal."; suggestions.push({to:"75", effect:"je → jne (inverse : saute si différent)"}); suggestions.push({to:"90", effect:"→ nop (supprime le saut, continue toujours)"}); }
+      else if(op===0x75){ role="Saute si le résultat de la comparaison est différent."; suggestions.push({to:"74", effect:"jne → je (inverse : saute si égal)"}); suggestions.push({to:"90", effect:"→ nop (supprime le saut)"}); }
+      else if(op>=0x40&&op<=0x47){ role=`Incrémente ${REG32[op-0x40]} (+1).`; suggestions.push({to:(0x48+(op-0x40)).toString(16).toUpperCase().padStart(2,"0"), effect:`inc → dec (${REG32[op-0x40]} -1 au lieu de +1)`}); suggestions.push({to:"90", effect:"→ nop (annule l'incrément)"}); }
+      else if(op>=0x48&&op<=0x4F){ role=`Décrémente ${REG32[op-0x48]} (-1).`; suggestions.push({to:(0x40+(op-0x48)).toString(16).toUpperCase().padStart(2,"0"), effect:`dec → inc (${REG32[op-0x48]} +1 au lieu de -1)`}); suggestions.push({to:"90", effect:"→ nop (annule)"}); }
+      else if(op>=0x50&&op<=0x57){ role=`Empile ${REG32[op-0x50]} sur la pile.`; suggestions.push({to:"90", effect:"push → nop (n'empile plus)"}); }
+      else if(op>=0x58&&op<=0x5F){ role=`Dépile vers ${REG32[op-0x58]}.`; suggestions.push({to:"90", effect:"pop → nop (ne dépile plus)"}); }
+      else if(op===0xEB){ role="Saut inconditionnel (va toujours ailleurs)."; suggestions.push({to:"90", effect:"jmp → nop (supprime le saut)"}); }
+      else if(op===0x90){ role="Ne fait rien (nop)."; suggestions.push({to:"CC", effect:"nop → int3 (point d'arrêt)"}); }
+      else if(op===0x85){ role="Teste si un registre vaut zéro (avant un saut)."; suggestions.push({to:"90 90", effect:"→ nop (supprime le test)"}); }
+      else if(op===0x39||op===0x3B){ role="Compare deux registres."; suggestions.push({to:"90 90", effect:"→ nop (supprime la comparaison)"}); }
+      else if(op===0x83 && hexBytes[pos+1]!==undefined && ((hexBytes[pos+1]>>3)&7)===7){ role="Compare un registre à une petite valeur."; suggestions.push({to:"valeur différente à pos+2", effect:"compare à une autre valeur (change le 3e octet)"}); }
+      else if(op===0xE8){ role="Appelle une fonction."; suggestions.push({to:"90 (x5)", effect:"call → nop (n'appelle plus la fonction)"}); }
+      else if(op===0xC3){ role="Retourne de la fonction."; }
+
+      if(suggestions.length>0 || role){ codeMods.push({off:pos, instr:ins.text, bytes:Array.from(hexBytes.slice(pos,pos+ins.len)), suggestions, role}); }
       pos+=ins.len; count++;
     }
   }
   if(codeMods.length===0){ html+=`<div style="font-size:10px;color:#888;padding-left:8px;">Aucune instruction modifiable trouvée.</div>`; }
   else codeMods.forEach(m=>{
     const bs=m.bytes.map(x=>x.toString(16).toUpperCase().padStart(2,"0")).join(" ");
-    html+=`<div style="margin-bottom:6px;padding:5px;background:#fff;border-radius:4px;border:1px solid #d5e5f5;">
-      <div style="font-family:monospace;font-size:10px;color:#5a2d9b;font-weight:600;">0x${m.off.toString(16).toUpperCase()} · ${m.instr} <span style="color:#999;font-weight:400;">(${bs})</span></div>`;
+    html+=`<div style="margin-bottom:8px;padding:6px;background:#fff;border-radius:5px;border:1px solid #d5e5f5;">
+      <div style="font-family:monospace;font-size:11px;color:#5a2d9b;font-weight:700;">0x${m.off.toString(16).toUpperCase()} · ${m.instr}</div>
+      <div style="font-family:monospace;font-size:9px;color:#999;margin-bottom:2px;">octets : ${bs}</div>`;
+    if(m.role) html+=`<div style="font-size:10px;color:#666;margin-bottom:3px;font-style:italic;">💡 ${m.role}</div>`;
+    if(m.suggestions.length===0){ html+=`<div style="font-size:10px;color:#aaa;">(pas de modification simple proposée)</div>`; }
     m.suggestions.forEach(s=>{
-      html+=`<div class="mod-suggest-item" data-off="${m.off}" data-newval="${s.to}" data-zone="code" style="font-size:10px;color:#555;margin-top:2px;padding:3px 6px;background:#f5f9ff;border-radius:3px;cursor:pointer;border:1px solid #d5e5f5;">👁️ → <span style="font-family:monospace;color:#c0392b;font-weight:600;">${s.to}</span> : ${s.effect}</div>`;
+      const newValMatch=s.to.match(/^([0-9A-Fa-f]{2})/);
+      const nv=newValMatch?newValMatch[1]:"";
+      html+=`<div class="mod-suggest-item mod-code-item" data-off="${m.off}" data-newval="${nv}" data-zone="code" style="font-size:10px;color:#333;margin-top:3px;padding:4px 6px;border-radius:4px;cursor:pointer;border:1px solid #d5e5f5;">👁️ <span style="font-family:monospace;color:#c0392b;font-weight:700;">${s.to}</span> — ${s.effect}</div>`;
     });
     html+=`</div>`;
   });
@@ -3666,6 +3763,9 @@ function suggestModifications(){
   // Rendre chaque proposition cliquable
   box.querySelectorAll(".mod-suggest-item").forEach(item=>{
     item.addEventListener("click",()=>{
+      // Marquer cette proposition comme active (couleur foncée), retirer des autres
+      box.querySelectorAll(".mod-suggest-item").forEach(el=>el.classList.remove("mod-active"));
+      item.classList.add("mod-active");
       const off=parseInt(item.dataset.off);
       const newVal=item.dataset.newval;
       hexModHighlight=off;
