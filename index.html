@@ -1049,7 +1049,16 @@ function renderResult(data){
   $("hashText").textContent=hash;
   $("summaryBox").innerHTML=`<div class="malicious">${stats.malicious} Détecté</div><div style="color:#e08a00;">${stats.suspicious} Suspect</div><div class="clean">${stats.harmless+stats.undetected} Indemne</div>`;
   $("openInBrowser").onclick=()=>window.open(permalink,"_blank");
-  $("engineList").innerHTML=engines.filter(e=>e.category==="malicious"||e.category==="suspicious").concat(engines.filter(e=>e.category!=="malicious"&&e.category!=="suspicious")).map(e=>`<div><span>${e.engine}</span><span class="${e.category==="malicious"?"malicious":e.category==="suspicious"?"":"clean"}">${e.result||e.category}</span></div>`).join("");
+  $("engineList").innerHTML=engines.filter(e=>e.category==="malicious"||e.category==="suspicious").concat(engines.filter(e=>e.category!=="malicious"&&e.category!=="suspicious")).map(e=>{
+    const slug=e.engine.toLowerCase().replace(/[^a-z0-9]/g,"");
+    const initial=e.engine.charAt(0).toUpperCase();
+    // Couleur de la pastille de secours selon le résultat
+    const badgeColor=e.category==="malicious"?"#d02020":e.category==="suspicious"?"#d07800":"#1a8a3a";
+    // Logo depuis le dossier logos/ (que tu remplis toi-même) ; si absent, pastille avec initiale
+    const logo=`<img src="logos/${slug}.png" alt="" style="width:18px;height:18px;border-radius:4px;object-fit:contain;vertical-align:middle;" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${initial}',style:'display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:${badgeColor};color:#fff;font-size:11px;font-weight:700;vertical-align:middle;'}))">`;
+    const resultClass=e.category==="malicious"?"malicious":e.category==="suspicious"?"":"clean";
+    return `<div><span style="display:inline-flex;align-items:center;gap:7px;">${logo}${e.engine}</span><span class="${resultClass}">${e.result||e.category}</span></div>`;
+  }).join("");
   $("resultBox").classList.remove("hidden");
 }
 $("toggleEngines").addEventListener("click",()=>{$("engineList").classList.toggle("hidden");$("toggleEngines").textContent=$("engineList").classList.contains("hidden")?"Voir les résultats complets…":"Masquer les résultats";});
