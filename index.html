@@ -543,10 +543,17 @@
             <select id="hexStrategy" style="width:100%;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:12px;box-sizing:border-box;">
               <optgroup label="── Basique ──">
                 <option value="nop">NOP (0x90) — neutre x86</option>
+                <option value="safenop">🛡️ NOP sûr — code seulement (protège l'en-tête)</option>
                 <option value="zero">Zéros (0x00)</option>
                 <option value="ff">0xFF</option>
                 <option value="int3">INT3 (0xCC) — breakpoint</option>
                 <option value="custom">Valeur personnalisée</option>
+              </optgroup>
+              <optgroup label="── 🛡️ Sûres (protègent la structure) ──">
+                <option value="safezero">🛡️ Zéros sûr — données seulement</option>
+                <option value="saferandom">🛡️ Aléatoire sûr — données seulement</option>
+                <option value="safexor">🛡️ XOR sûr — données seulement</option>
+                <option value="zonetarget">🎯 Ciblé par zone — tu choisis code ou données</option>
               </optgroup>
               <optgroup label="── Arithmétique ──">
                 <option value="increment">Incrément (+1)</option>
@@ -2171,6 +2178,30 @@ function applySalsa20(byte, key, counter) {
   return byte ^ (state[0] & 0xFF);
 }
 
+// Détermine la zone d'un offset : 'header', 'code', 'data'
+function getOffsetZone(bytes, off){
+  try{
+    if(bytes[0]!==0x4D||bytes[1]!==0x5A) return "data";
+    const peOff=bytes[0x3C]|(bytes[0x3D]<<8)|(bytes[0x3E]<<16)|(bytes[0x3F]<<24);
+    const numSec=bytes[peOff+6]|(bytes[peOff+7]<<8);
+    const optSize=bytes[peOff+20]|(bytes[peOff+21]<<8);
+    let secOff=peOff+24+optSize, hdrEnd=0x400, cStart=-1, cEnd=0;
+    const secs=[];
+    for(let s=0;s<numSec;s++){
+      const rawSize=bytes[secOff+16]|(bytes[secOff+17]<<8)|(bytes[secOff+18]<<16)|(bytes[secOff+19]<<24);
+      const rawOff=bytes[secOff+20]|(bytes[secOff+21]<<8)|(bytes[secOff+22]<<16)|(bytes[secOff+23]<<24);
+      const chars=bytes[secOff+36]|(bytes[secOff+37]<<8)|(bytes[secOff+38]<<16)|(bytes[secOff+39]<<24);
+      secs.push({rawOff});
+      if((chars&0x20000000)&&cStart<0){cStart=rawOff;cEnd=rawOff+rawSize;}
+      secOff+=40;
+    }
+    if(secs.length>0) hdrEnd=Math.min(...secs.map(s=>s.rawOff));
+    if(off<hdrEnd) return "header";
+    if(cStart>=0&&off>=cStart&&off<cEnd) return "code";
+    return "data";
+  }catch(e){ return "data"; }
+}
+
 // ─── Fonction applyHexStrategy (modifiée) ──────────────────────────────────
 function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
   const result = new Uint8Array(bytes);
@@ -2206,6 +2237,43 @@ function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
     return result;
   }
   
+  // Stratégies "sûres" : ne modifient QUE les zones autorisées, protègent le reste.
+  // safenop → code seulement ; safezero/safexor/saferandom → données seulement (pas code ni en-tête)
+  const SAFE_STRATS={
+    safenop:{val:0x90, zones:["code"], op:"nop"},
+    safezero:{val:0x00, zones:["data"], op:"zero"},
+    saferandom:{val:null, zones:["data"], op:"random"},
+    safexor:{val:null, zones:["data"], op:"xor"},
+  };
+  if(SAFE_STRATS[strategy]){
+    const cfg=SAFE_STRATS[strategy];
+    let modifiedCount=0, protectedCount=0;
+    offsets.forEach(o=>{
+      const zone=getOffsetZone(bytes, o);
+      if(cfg.zones.includes(zone)){
+        if(cfg.op==="random") result[o]=Math.floor(Math.random()*256);
+        else if(cfg.op==="xor") result[o]=bytes[o]^xk;
+        else result[o]=cfg.val;
+        modifiedCount++;
+      } else protectedCount++;
+    });
+    window._safeStats={modified:modifiedCount, protected:protectedCount, allowed:cfg.zones.join("/")};
+    return result;
+  }
+
+  // Modification ciblée par zone (l'utilisateur choisit la zone à modifier)
+  if(strategy==="zonetarget"){
+    const targetZone=window._targetZone||"data";
+    const tval=parseInt((customValue||"90").replace(/[^0-9A-Fa-f]/g,"").substring(0,2),16);
+    let modifiedCount=0, protectedCount=0;
+    offsets.forEach(o=>{
+      if(getOffsetZone(bytes,o)===targetZone){ result[o]=isNaN(tval)?0x90:tval; modifiedCount++; }
+      else protectedCount++;
+    });
+    window._safeStats={modified:modifiedCount, protected:protectedCount, allowed:targetZone};
+    return result;
+  }
+
   offsets.forEach((o, idx) => {
     switch(strategy){
       case "nop": result[o] = 0x90; break;
@@ -2235,7 +2303,7 @@ function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
 }
 
 const HEX_STRAT_LABELS = {
-  nop:"NOP", zero:"Zéros", ff:"0xFF", int3:"INT3", custom:"Custom",
+  nop:"NOP", safenop:"NOP sûr (code seulement)", safezero:"Zéros sûr (données)", saferandom:"Aléatoire sûr (données)", safexor:"XOR sûr (données)", zonetarget:"Ciblé par zone", zero:"Zéros", ff:"0xFF", int3:"INT3", custom:"Custom",
   increment:"Incrément", decrement:"Décrément", invert:"NOT", xor:"XOR", random:"Aléatoire",
   pattern:"Motif", shuffle:"Shuffle", mirror:"Miroir", entropy:"Entropie",
   rol:"ROL", ror:"ROR", swapnib:"Swap nibbles", addconst:"Add const", subconst:"Sub const", seq:"Séquence",
@@ -2244,6 +2312,11 @@ const HEX_STRAT_LABELS = {
 
 const HEX_STRAT_DESC = {
   nop:"Instruction neutre x86 — la plus sûre pour le code",
+  safenop:"🛡️ NOP appliqué UNIQUEMENT sur le code (.text) — protège l'en-tête et les zones critiques (ne les modifie pas)",
+  safezero:"🛡️ Met à zéro UNIQUEMENT les données — protège code, en-tête et structures",
+  saferandom:"🛡️ Octets aléatoires UNIQUEMENT sur les données — protège code et en-tête",
+  safexor:"🛡️ XOR UNIQUEMENT sur les données — protège code et structures critiques",
+  zonetarget:"🎯 Modifie SEULEMENT la zone choisie (code/données) — le reste est protégé",
   zero:"Efface la zone — idéal pour padding/données",
   ff:"Remplit de 255 — test de limite",
   int3:"Breakpoint x86 — arrête l'exécution",
@@ -2697,6 +2770,11 @@ $("hexCreateVariant").addEventListener("click", async() => {
   downloadBytes(variantBytes, name);
 
   log(`Variante ${name} créée (${HEX_STRAT_LABELS[strategy] || strategy}, ${offs.length} octets, blocs ${blocksLabel}, PE ${pe ? 'valide' : 'invalide'})`);
+  // Compteur de protection pour les stratégies sûres
+  if(window._safeStats){
+    log(`🛡️ Protection : ${window._safeStats.modified} octets modifiés (zone ${window._safeStats.allowed}), ${window._safeStats.protected} octets PROTÉGÉS (zones critiques épargnées)`);
+    window._safeStats=null;
+  }
   renderHexVariants();
   showHexDiff(hexVariants.length - 1);
 });
