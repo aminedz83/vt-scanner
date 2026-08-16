@@ -85,6 +85,9 @@
   .hex-cell.pe-field-hl{background:#d4f0d4;outline:1px solid #5a9b5a;}
   .hex-cell.selected.pe-field-hl{background:#4a90d9;color:#fff;}
   .hex-cell.mod-suggest{background:#ffd60a;outline:2px solid #e0a800;font-weight:700;animation:modpulse 1s ease-in-out infinite;}
+  .hex-cell.hex-found{background:#ffe600!important;color:#000!important;font-weight:700;}
+  .hex-cell.hex-sig{background:#fff3a0;color:#7a5a00;font-weight:700;}
+  .hex-ascii-found{background:#ffe600;color:#000;font-weight:700;border-radius:2px;}
   @keyframes modpulse{0%,100%{outline-color:#e0a800;}50%{outline-color:#ff8c00;}}
   .hex-addr.mod-arrow{color:#e0a800;font-weight:700;}
   .mod-suggest-item.mod-code-item{background:#f5f9ff;}
@@ -770,6 +773,8 @@ let peBytes = null, peOrigBytes = null, peFileNameStr = "", peOffsets = {};
 let hexBytes = null, hexOrigBytes = null, hexFileNameStr = "";
 let hexSelectedOffset = null;
 let hexModHighlight = null; // octet surligné en jaune par l'outil de suggestions
+let hexFindHighlight = null; // {start, length} plage surlignée par la recherche
+let hexSigHighlights = []; // signatures clés (MZ, PE) surlignées en permanence
 let history = [];   // [{iter, name, blob, sha256, mods}]
 let startTime = null, timerInt = null;
 
@@ -1940,9 +1945,12 @@ function renderHex(){
       const sel=o===hexSelectedOffset?" selected":"";
       const mod=(hexOrigBytes&&v!==hexOrigBytes[o])?" modified":"";
       const modSug=(typeof hexModHighlight!=="undefined"&&hexModHighlight!==null&&o===hexModHighlight)?" mod-suggest":"";
+      const inFind=(typeof hexFindHighlight!=="undefined"&&hexFindHighlight!==null&&o>=hexFindHighlight.start&&o<hexFindHighlight.start+hexFindHighlight.length)?" hex-found":"";
+      const inSig=(hexSigHighlights.some(s=>o>=s.start&&o<s.start+s.length))?" hex-sig":"";
       const evenCls=(c%2===0)?" hex-even":" hex-odd";
-      hex+=`<td class="hex-cell${sel}${mod}${modSug}${evenCls}" data-off="${o}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
-      asc+=(v>=32&&v<127)?String.fromCharCode(v):".";
+      hex+=`<td class="hex-cell${sel}${mod}${modSug}${inFind}${inSig}${evenCls}" data-off="${o}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
+      const ch=(v>=32&&v<127)?String.fromCharCode(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"):".";
+      asc+=inFind?`<span class="hex-ascii-found">${ch}</span>`:ch;
     }
     const check=hexSelectMode?`<input type="checkbox" class="hex-linecheck" data-row="${off}" ${rowSel?'checked':''}>`:'';
     const sectionCls=inSection?`hex-row-section-${hexSectionRange.risk||'med'}`:'';
@@ -4116,6 +4124,7 @@ function hexFindSearch(){
 
   if(hexFindMatches.length===0){
     box.innerHTML=`<span style="color:#c00;">Aucune occurrence trouvée.</span>`;
+    hexFindHighlight=null; renderHex();
     $("hexFindPrev").disabled=true; $("hexFindNext").disabled=true;
     hexFindIndex=-1;
     return;
@@ -4130,7 +4139,13 @@ function hexFindGoTo(idx){
   if(idx<0||idx>=hexFindMatches.length) return;
   hexFindIndex=idx;
   const off=hexFindMatches[idx];
-  // Aller à la page et surligner
+  // Longueur du motif recherché (pour surligner toute la séquence)
+  const type=$("hexFindType").value;
+  const raw=$("hexFindValue").value;
+  let patLen;
+  if(type==="hex"){ patLen=raw.replace(/[^0-9A-Fa-f]/g,"").length/2; }
+  else { patLen=raw.length; }
+  hexFindHighlight={start:off, length:patLen};
   hexModHighlight=off;
   const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
   hexPage=Math.floor(off/pageBytes);
