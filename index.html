@@ -1962,7 +1962,15 @@ function updateHexSelInfo(){
   if(stats){
     const selBytes=new Uint8Array(offs.map(o=>hexBytes[o]));
     const ent=hexEntropy(selBytes);
-    stats.innerHTML=`⬡ ${offs.length} octets sélectionnés · plage 0x${offs[0].toString(16).toUpperCase()}–0x${offs[offs.length-1].toString(16).toUpperCase()} · entropie ${ent.toFixed(2)}/8.0`;
+    // Prévisualisation : évaluer le risque de la zone sélectionnée
+    let riskHtml="";
+    if(typeof evaluateBreakRisk==="function"){
+      const risk=evaluateBreakRisk(hexBytes, offs);
+      const icon=risk.level==="high"?"🔴":risk.level==="low"?"🟢":risk.level==="med"?"🟡":"⚪";
+      const color=risk.level==="high"?"#c00":risk.level==="low"?"#0a7":risk.level==="med"?"#e0a800":"#888";
+      riskHtml=`<br><span style="color:${color};font-weight:600;">${icon} Zone ${risk.level==="high"?"CRITIQUE":risk.level==="low"?"sûre":risk.level==="med"?"moyenne":"inconnue"}</span> <span style="color:#888;">— ${risk.reason}</span>`;
+    }
+    stats.innerHTML=`⬡ ${offs.length} octets sélectionnés · plage 0x${offs[0].toString(16).toUpperCase()}–0x${offs[offs.length-1].toString(16).toUpperCase()} · entropie ${ent.toFixed(2)}/8.0${riskHtml}`;
   }
   btn.disabled=false;
 }
