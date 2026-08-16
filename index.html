@@ -3130,7 +3130,7 @@ function generateTestPE(){
   w32(0x64, 0xDEADBEEF);
   const PE = 0x80;
   buf[PE] = 0x50; buf[PE+1] = 0x45; buf[PE+2] = 0; buf[PE+3] = 0;
-  w16(PE+4, 0x014C); w16(PE+6, 3); w32(PE+8, 0x5A3C8C5C);
+  w16(PE+4, 0x014C); w16(PE+6, 4); w32(PE+8, 0x5A3C8C5C);
   w32(PE+12, 0); w32(PE+16, 0); w16(PE+20, 0xE0); w16(PE+22, 0x0102);
   const OPT = PE + 24;
   w16(OPT, 0x010B); buf[OPT+2] = 0x0E; buf[OPT+3] = 0x10;
@@ -3160,6 +3160,13 @@ function generateTestPE(){
   for(let i = 0; i < 8; i++) buf[SEC+80+i] = dname.charCodeAt(i) || 0;
   w32(SEC+88, 0x200); w32(SEC+92, 0x3000);
   w32(SEC+96, 0x200); w32(SEC+100, 0x800); w32(SEC+116, 0xC0000040);
+
+  // 4e section : .rsrc (ressources, contient l'icône)
+  const rsname = ".rsrc\0\0\0";
+  for(let i = 0; i < 8; i++) buf[SEC+120+i] = rsname.charCodeAt(i) || 0;
+  w32(SEC+128, 0x800); w32(SEC+132, 0x4000);       // VirtualSize, VirtualAddress
+  w32(SEC+136, 0x800); w32(SEC+140, 0xA00);         // RawSize, RawOffset (0xA00)
+  w32(SEC+156, 0x40000040);                         // Characteristics (données initialisées, lecture)
 
   const VI = 0x600;
   buf[VI] = 0xFE; buf[VI+1] = 0xEF; buf[VI+2] = 0x04; buf[VI+3] = 0xBD;
@@ -3205,20 +3212,83 @@ function generateTestPE(){
   for(let i = 0; i < buf.length - 1; i += 2){ sum += ((buf[i+1] << 8) | buf[i]) + carry; carry = sum >>> 16; sum &= 0xffff; }
   sum = (sum + carry) & 0xffff; const cs = (sum + buf.length) >>> 0; w32(OPT+64, cs);
 
-  // Agrandir à ~15 Ko en ajoutant des données variées après le contenu existant
+  // Agrandir à ~26 Ko en ajoutant des données variées après le contenu existant
   // (zone de données supplémentaire — n'affecte pas les structures critiques)
-  const bigBuf = new Uint8Array(15360); // 15 Ko
+  const bigBuf = new Uint8Array(26624); // 26 Ko
   bigBuf.set(buf, 0);
-  // Remplir la zone ajoutée avec des données variées (simule du contenu réel)
-  for(let i = buf.length; i < bigBuf.length; i++){
-    bigBuf[i] = (i * 37 + 11) % 256;
+  const bw16 = (off, v) => writeU16LE(bigBuf, off, v);
+  const bw32 = (off, v) => writeU32LE(bigBuf, off, v);
+
+  // ── Section .rsrc à l'offset 0xA00 : structure d'icône COMPLÈTE (3 niveaux) ──
+  // Le détecteur PE attend : Niveau1 (type) → Niveau2 (ID) → Niveau3 (langue) → data
+  const RSRC = 0xA00;          // offset fichier de .rsrc
+  const RSRC_RVA = 0x4000;     // RVA de .rsrc (doit correspondre à VirtualAddress)
+
+  // Un répertoire = 16 octets d'en-tête + 8 par entrée
+  // Layout qu'on construit (offsets relatifs à RSRC) :
+  //   0x00 : Niveau 1 (racine) — 1 entrée : type RT_ICON(3)
+  //   0x18 : Niveau 2 pour RT_ICON — 1 entrée : ID 1
+  //   0x30 : Niveau 3 pour ID 1 — 1 entrée : langue 0 → DataEntry
+  //   0x48 : DataEntry (RVA + taille des données de l'icône)
+  //   0x60 : données réelles de l'icône (BITMAPINFOHEADER + pixels)
+
+  // Niveau 1 : racine
+  bw16(RSRC+12, 0); bw16(RSRC+14, 1);              // 0 nommés, 1 par ID
+  bw32(RSRC+16, 3);                                 // ID = 3 (RT_ICON)
+  bw32(RSRC+20, 0x80000000 | 0x18);                 // pointe vers Niveau 2 (offset 0x18), bit répertoire
+
+  // Niveau 2 : pour RT_ICON, liste les icônes (ID 1)
+  bw16(RSRC+0x18+12, 0); bw16(RSRC+0x18+14, 1);
+  bw32(RSRC+0x18+16, 1);                             // ID de l'icône = 1
+  bw32(RSRC+0x18+20, 0x80000000 | 0x30);            // pointe vers Niveau 3 (offset 0x30)
+
+  // Niveau 3 : langue → pointe vers le DataEntry (PAS un répertoire)
+  bw16(RSRC+0x30+12, 0); bw16(RSRC+0x30+14, 1);
+  bw32(RSRC+0x30+16, 0x0409);                        // langue (US English)
+  bw32(RSRC+0x30+20, 0x48);                          // pointe vers DataEntry (offset 0x48, bit=0 → data)
+
+  // DataEntry (16 octets) : RVA des données + taille
+  const iconDataFileOff = RSRC + 0x60;
+  const iconDataRVA = RSRC_RVA + 0x60;
+  const iconDataSize = 40 + 16*16*4;                 // header + pixels
+  bw32(RSRC+0x48, iconDataRVA);                      // OffsetToData (RVA)
+  bw32(RSRC+0x48+4, iconDataSize);                   // Size
+  bw32(RSRC+0x48+8, 0);                              // CodePage
+  bw32(RSRC+0x48+12, 0);                             // Reserved
+
+  // Données réelles de l'icône (BITMAPINFOHEADER + pixels 16x16, carré coloré)
+  bw32(iconDataFileOff+0, 40);                       // biSize
+  bw32(iconDataFileOff+4, 16);                       // biWidth
+  bw32(iconDataFileOff+8, 32);                       // biHeight (16 image + 16 masque)
+  bw16(iconDataFileOff+12, 1);                       // biPlanes
+  bw16(iconDataFileOff+14, 32);                      // biBitCount
+  bw32(iconDataFileOff+16, 0);                       // biCompression
+  let px = iconDataFileOff + 40;
+  for(let y = 0; y < 16; y++){
+    for(let x = 0; x < 16; x++){
+      bigBuf[px++] = 200 - y*8;   // B
+      bigBuf[px++] = 100 + x*6;   // G
+      bigBuf[px++] = 40;          // R
+      bigBuf[px++] = 255;         // A
+    }
   }
-  // Quelques chaînes lisibles dispersées pour le réalisme
-  const extraStrings = ["Data section content", "test_sample build 2024", "Sample resource block", "Configuration values"];
-  let eOff = buf.length + 64;
+
+  // Mettre à jour le Data Directory : entrée Ressources (index 2) → RVA + taille de .rsrc
+  w32(OPT+112, RSRC_RVA);                            // Resource Table RVA
+  w32(OPT+116, 0x800);                               // Resource Table Size
+  // (recopier ces 8 octets dans bigBuf car ils sont dans l'en-tête déjà copié)
+  bw32(OPT+112, RSRC_RVA);
+  bw32(OPT+116, 0x800);
+
+  // Remplir le reste avec des données variées (contenu réaliste)
+  for(let i = 0xC00; i < bigBuf.length; i++){
+    if(bigBuf[i] === 0) bigBuf[i] = (i * 37 + 11) % 256;
+  }
+  const extraStrings = ["Data section content", "test_sample build 2024", "Sample resource block", "IconResource v1"];
+  let eOff = 0xC00 + 128;
   for(const s of extraStrings){
     for(let i = 0; i < s.length; i++) bigBuf[eOff + i] = s.charCodeAt(i);
-    eOff += 512;
+    eOff += 640;
   }
   return bigBuf;
 }
