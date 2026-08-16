@@ -73,7 +73,11 @@
   .hex-table{border-collapse:collapse;width:100%;}
   .hex-table td{padding:2px 5px;white-space:nowrap;vertical-align:top;}
   .hex-addr{color:#888;user-select:none;border-right:1px solid #ddd;}
-  .hex-cell{cursor:pointer;border-radius:2px;}
+  .hex-header-row td{position:sticky;top:0;background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:var(--panel-blue);font-weight:700;text-align:center;border-bottom:2px solid var(--accent);user-select:none;z-index:3;}
+  .hex-colhead{text-align:center;font-size:10px;}
+  .hex-cell.hex-odd{color:#555;}
+  .hex-cell.hex-even{color:#1a1a1a;}
+  .hex-cell{cursor:pointer;border-radius:2px;text-align:center;}
   .hex-cell:hover{background:#cde;}
   .hex-cell.selected{background:#4a90d9;color:#fff;}
   .hex-cell.modified{background:#ffeeba;}
@@ -516,6 +520,49 @@
           <div id="hexRefResult" style="margin-top:6px;"></div>
           <button id="hexModsBtn" style="width:100%;margin-top:6px;padding:7px;box-sizing:border-box;font-size:11px;font-weight:600;background:linear-gradient(180deg,#e0f0ff,#b8d8f5);border:1px solid #3a7bc0;border-radius:20px;color:#1a4d8a;cursor:pointer;">📋 Modifications possibles dans le code</button>
           <div id="hexModsResult" style="margin-top:6px;"></div>
+        </div>
+
+        <div id="hexFindPanel" style="margin-bottom:8px;">
+          <div class="subtitle">🔍 Rechercher dans le fichier</div>
+          <div class="row" style="margin-bottom:6px;">
+            <select id="hexFindType" style="flex:0 0 auto;width:130px;">
+              <option value="ascii">Texte (ASCII)</option>
+              <option value="hex">Valeur hex</option>
+            </select>
+            <input type="text" id="hexFindValue" placeholder="ex: Module ou 4D 5A 90" style="flex:1;" />
+          </div>
+          <div class="row" style="margin-bottom:6px;align-items:center;font-size:11px;color:#555;gap:12px;">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hexFindCase"> Respecter la casse</label>
+          </div>
+          <div class="row" style="gap:6px;">
+            <button id="hexFindBtn">🔍 Chercher tout</button>
+            <button id="hexFindPrev" disabled>◀ Précédent</button>
+            <button id="hexFindNext" disabled>Suivant ▶</button>
+          </div>
+          <div id="hexFindResult" style="margin-top:6px;font-size:11px;"></div>
+        </div>
+
+        <div id="hexReplacePanel" style="margin-bottom:8px;">
+          <div class="subtitle">🔁 Remplacer</div>
+          <div class="row" style="margin-bottom:6px;">
+            <select id="hexReplaceType" style="flex:0 0 auto;width:130px;">
+              <option value="ascii">Texte (ASCII)</option>
+              <option value="hex">Valeur hex</option>
+            </select>
+            <input type="text" id="hexReplaceFind" placeholder="Chercher" style="flex:1;" />
+          </div>
+          <div class="row" style="margin-bottom:6px;">
+            <input type="text" id="hexReplaceWith" placeholder="Remplacer par" style="flex:1;" />
+          </div>
+          <div class="row" style="margin-bottom:6px;align-items:center;font-size:11px;color:#555;gap:12px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hexReplaceCase"> Respecter la casse</label>
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hexReplacePad" checked> Compléter avec des zéros</label>
+          </div>
+          <div class="row" style="gap:6px;">
+            <button id="hexReplaceOne">Remplacer 1</button>
+            <button id="hexReplaceAll">Remplacer tout</button>
+          </div>
+          <div id="hexReplaceResult" style="margin-top:6px;font-size:11px;"></div>
         </div>
 
         <div id="hexSafeBlocks" class="hidden" style="margin-bottom:8px;">
@@ -1877,7 +1924,10 @@ function renderHex(){
   if(hexPage>=totalPages) hexPage=Math.max(0,totalPages-1);
   const startByte=hexPage*pageBytes;
   const endByte=Math.min(startByte+pageBytes,b.length);
-  let html="";
+  // En-tête de colonnes numérotées (0 1 2 ... F) — style éditeur hex classique
+  let headHex="";
+  for(let c=0;c<COLS;c++){ headHex+=`<td class="hex-colhead">${c.toString(16).toUpperCase()}</td>`; }
+  let html=`<tr class="hex-header-row"><td class="hex-addr hex-colhead">Offset</td>${headHex}<td class="hex-colhead">ASCII</td></tr>`;
   for(let off=startByte;off<endByte;off+=COLS){
     const addr=off.toString(16).toUpperCase().padStart(8,"0");
     const rowSel=hexSelectedRows.has(off);
@@ -1890,7 +1940,8 @@ function renderHex(){
       const sel=o===hexSelectedOffset?" selected":"";
       const mod=(hexOrigBytes&&v!==hexOrigBytes[o])?" modified":"";
       const modSug=(typeof hexModHighlight!=="undefined"&&hexModHighlight!==null&&o===hexModHighlight)?" mod-suggest":"";
-      hex+=`<td class="hex-cell${sel}${mod}${modSug}" data-off="${o}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
+      const evenCls=(c%2===0)?" hex-even":" hex-odd";
+      hex+=`<td class="hex-cell${sel}${mod}${modSug}${evenCls}" data-off="${o}">${v.toString(16).toUpperCase().padStart(2,"0")}</td>`;
       asc+=(v>=32&&v<127)?String.fromCharCode(v):".";
     }
     const check=hexSelectMode?`<input type="checkbox" class="hex-linecheck" data-row="${off}" ${rowSel?'checked':''}>`:'';
@@ -4018,6 +4069,168 @@ function suggestModifications(){
 }
 
 $("hexModsBtn").addEventListener("click", suggestModifications);
+
+// ═══════════════════════════════════════════════════════════════
+// RECHERCHE dans le fichier (texte ASCII ou valeur hex)
+// ═══════════════════════════════════════════════════════════════
+let hexFindMatches=[];   // liste des offsets trouvés
+let hexFindIndex=-1;     // position courante dans les résultats
+
+function hexFindSearch(){
+  const box=$("hexFindResult");
+  if(!hexBytes){ box.innerHTML=`<span style="color:#c00;">Charge d'abord un fichier.</span>`; return; }
+  const type=$("hexFindType").value;
+  const raw=$("hexFindValue").value;
+  const caseSensitive=$("hexFindCase").checked;
+  if(!raw.trim()){ box.innerHTML=`<span style="color:#888;">Entre une valeur à chercher.</span>`; return; }
+
+  // Construire le motif d'octets à chercher
+  let pattern=[];
+  if(type==="hex"){
+    // Parser les octets hex (accepte "4D 5A" ou "4D5A" ou "4d5a")
+    const clean=raw.replace(/[^0-9A-Fa-f]/g,"");
+    if(clean.length%2!==0){ box.innerHTML=`<span style="color:#c00;">Nombre de chiffres hex impair — vérifie ta valeur.</span>`; return; }
+    for(let i=0;i<clean.length;i+=2) pattern.push(parseInt(clean.substr(i,2),16));
+  } else {
+    // Texte ASCII
+    for(let i=0;i<raw.length;i++) pattern.push(raw.charCodeAt(i)&0xFF);
+  }
+  if(pattern.length===0){ box.innerHTML=`<span style="color:#c00;">Motif vide.</span>`; return; }
+
+  // Chercher toutes les occurrences
+  hexFindMatches=[];
+  const b=hexBytes;
+  for(let i=0;i<=b.length-pattern.length;i++){
+    let match=true;
+    for(let j=0;j<pattern.length;j++){
+      let bv=b[i+j], pv=pattern[j];
+      if(type==="ascii" && !caseSensitive){
+        // comparaison insensible à la casse pour les lettres
+        if(bv>=65&&bv<=90) bv+=32;
+        if(pv>=65&&pv<=90) pv+=32;
+      }
+      if(bv!==pv){ match=false; break; }
+    }
+    if(match) hexFindMatches.push(i);
+  }
+
+  if(hexFindMatches.length===0){
+    box.innerHTML=`<span style="color:#c00;">Aucune occurrence trouvée.</span>`;
+    $("hexFindPrev").disabled=true; $("hexFindNext").disabled=true;
+    hexFindIndex=-1;
+    return;
+  }
+  hexFindIndex=0;
+  box.innerHTML=`<span style="color:#0a7;font-weight:600;">${hexFindMatches.length} occurrence(s) trouvée(s).</span> Utilise ◀ ▶ pour naviguer.`;
+  $("hexFindPrev").disabled=false; $("hexFindNext").disabled=false;
+  hexFindGoTo(0);
+}
+
+function hexFindGoTo(idx){
+  if(idx<0||idx>=hexFindMatches.length) return;
+  hexFindIndex=idx;
+  const off=hexFindMatches[idx];
+  // Aller à la page et surligner
+  hexModHighlight=off;
+  const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
+  hexPage=Math.floor(off/pageBytes);
+  renderHex();
+  hexSelectedOffset=off;
+  $("hexOffsetDisplay").value="0x"+off.toString(16).toUpperCase().padStart(8,"0");
+  $("hexValueInput").value=hexBytes[off].toString(16).toUpperCase().padStart(2,"0");
+  $("hexFindResult").innerHTML=`<span style="color:#0a7;font-weight:600;">Occurrence ${idx+1}/${hexFindMatches.length}</span> à l'offset <b>0x${off.toString(16).toUpperCase()}</b>`;
+}
+
+$("hexFindBtn").addEventListener("click", hexFindSearch);
+$("hexFindNext").addEventListener("click", ()=>{ if(hexFindMatches.length) hexFindGoTo((hexFindIndex+1)%hexFindMatches.length); });
+$("hexFindPrev").addEventListener("click", ()=>{ if(hexFindMatches.length) hexFindGoTo((hexFindIndex-1+hexFindMatches.length)%hexFindMatches.length); });
+$("hexFindValue").addEventListener("keydown",(e)=>{ if(e.key==="Enter") hexFindSearch(); });
+// Adapter le placeholder selon le type
+$("hexFindType").addEventListener("change",()=>{
+  $("hexFindValue").placeholder = $("hexFindType").value==="hex" ? "ex: 4D 5A 90" : "ex: Module";
+});
+
+// ═══════════════════════════════════════════════════════════════
+// REMPLACER (texte ASCII ou valeur hex), avec option compléter par zéros
+// ═══════════════════════════════════════════════════════════════
+function parsePattern(raw, type){
+  if(type==="hex"){
+    const clean=raw.replace(/[^0-9A-Fa-f]/g,"");
+    if(clean.length%2!==0) return null;
+    const p=[]; for(let i=0;i<clean.length;i+=2) p.push(parseInt(clean.substr(i,2),16));
+    return p;
+  } else {
+    const p=[]; for(let i=0;i<raw.length;i++) p.push(raw.charCodeAt(i)&0xFF);
+    return p;
+  }
+}
+
+function hexReplace(all){
+  const box=$("hexReplaceResult");
+  if(!hexBytes){ box.innerHTML=`<span style="color:#c00;">Charge d'abord un fichier.</span>`; return; }
+  const type=$("hexReplaceType").value;
+  const caseSensitive=$("hexReplaceCase").checked;
+  const pad=$("hexReplacePad").checked;
+  const findPat=parsePattern($("hexReplaceFind").value, type);
+  let replPat=parsePattern($("hexReplaceWith").value, type);
+  if(!findPat||findPat.length===0){ box.innerHTML=`<span style="color:#c00;">Motif de recherche invalide.</span>`; return; }
+  if(replPat===null){ box.innerHTML=`<span style="color:#c00;">Motif de remplacement invalide.</span>`; return; }
+
+  // Gérer la différence de taille
+  if(replPat.length<findPat.length && pad){
+    // Compléter avec des zéros pour garder la même taille (comme "Pad with Nulls")
+    while(replPat.length<findPat.length) replPat.push(0x00);
+  }
+  if(replPat.length>findPat.length){
+    box.innerHTML=`<span style="color:#c00;">⚠️ Le remplacement (${replPat.length} octets) est plus long que la recherche (${findPat.length} octets). Ça décalerait tout le fichier et le casserait. Utilise un remplacement de taille égale ou plus courte.</span>`;
+    return;
+  }
+
+  const b=hexBytes;
+  const matchAt=(pos)=>{
+    for(let j=0;j<findPat.length;j++){
+      let bv=b[pos+j], pv=findPat[j];
+      if(type==="ascii"&&!caseSensitive){ if(bv>=65&&bv<=90)bv+=32; if(pv>=65&&pv<=90)pv+=32; }
+      if(bv!==pv) return false;
+    }
+    return true;
+  };
+
+  let count=0, firstOff=-1;
+  for(let i=0;i<=b.length-findPat.length;i++){
+    if(matchAt(i)){
+      if(firstOff<0) firstOff=i;
+      // Écrire le remplacement
+      for(let j=0;j<replPat.length;j++) b[i+j]=replPat[j];
+      // Si pad activé et replPat complété, les zéros sont déjà dedans
+      count++;
+      if(!all){ break; } // remplacer seulement le premier
+      i+=findPat.length-1; // sauter après le remplacement
+    }
+  }
+
+  if(count===0){
+    box.innerHTML=`<span style="color:#c00;">Aucune occurrence trouvée à remplacer.</span>`;
+    return;
+  }
+  renderHex();
+  if(firstOff>=0){
+    hexModHighlight=firstOff;
+    const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
+    hexPage=Math.floor(firstOff/pageBytes);
+    renderHex();
+  }
+  box.innerHTML=`<span style="color:#0a7;font-weight:600;">✅ ${count} remplacement(s) effectué(s).</span>`+
+    `<div style="margin-top:4px;padding:5px 8px;background:#fff8e1;border:1px solid #ffc107;border-radius:4px;color:#8a6d00;font-size:10px;">💾 Pour garder : "Exporter fichier modifié" ou "Créer variante".</div>`;
+}
+
+$("hexReplaceOne").addEventListener("click", ()=>hexReplace(false));
+$("hexReplaceAll").addEventListener("click", ()=>hexReplace(true));
+$("hexReplaceType").addEventListener("change",()=>{
+  const isHex=$("hexReplaceType").value==="hex";
+  $("hexReplaceFind").placeholder=isHex?"Chercher (ex: 4D 5A)":"Chercher";
+  $("hexReplaceWith").placeholder=isHex?"Remplacer (ex: 90 90)":"Remplacer par";
+});
 
 // Tableau de référence : octets courants → instructions
 const BYTE_REFERENCE=[
