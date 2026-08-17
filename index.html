@@ -2948,31 +2948,38 @@ function renderHexVariants(){
     </div></div>`;
   html += `<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">`;
   hexVariants.forEach((v, i) => {
-    html += `<div style="border-top:2px solid #ffffff;border-left:2px solid #ffffff;border-right:2px solid #808080;border-bottom:2px solid #808080;background:${i%2?'#e8e5dd':'#f4f2ec'};padding:10px;box-sizing:border-box;margin-bottom:8px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;border-bottom:1px solid #b8b4ac;padding-bottom:6px;">
-        <span style="font-weight:700;color:var(--panel-blue);font-size:13px;">${v.name}</span>
-        <span style="display:flex;gap:8px;align-items:center;">
-          ${v.vtTotal !== undefined ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${v.vtDetections > 0 ? '#ffe0e0' : '#e0f5e0'};color:${v.vtDetections > 0 ? '#c00' : '#0a7'};" title="Détections VirusTotal">🛡️ ${v.vtDetections}/${v.vtTotal}</span>` : ''}
-          <span style="font-size:11px;font-weight:600;">${v.pe ? '<span style="color:#0a7;">✅ PE valide</span>' : '<span style="color:#c00;">❌ PE invalide</span>'}</span>
+    const riskBadge = v.breakRisk
+      ? (v.breakRisk.level==='high'?'<span style="color:#c00;font-weight:700;">🔴 Élevé</span>'
+        : v.breakRisk.level==='low'?'<span style="color:#0a7;font-weight:700;">🟢 Faible</span>'
+        : '<span style="color:#e0a800;font-weight:700;">🟡 Inconnu</span>')
+      : '—';
+    html += `<div style="border:1px solid #c5c1b7;border-top-color:#fff;border-left-color:#fff;border-radius:8px;background:${i%2?'#eceae2':'#f6f4ee'};padding:0;box-sizing:border-box;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;padding:9px 11px;background:linear-gradient(180deg,#eef1f8,#e2e6f0);border-bottom:1px solid #c8ccd8;">
+        <span style="font-weight:700;color:var(--panel-blue);font-size:13px;display:flex;align-items:center;gap:5px;">📄 ${v.name}</span>
+        <span style="display:flex;gap:6px;align-items:center;">
+          ${v.vtTotal !== undefined ? `<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;background:${v.vtDetections > 0 ? '#ffe0e0' : '#e0f5e0'};color:${v.vtDetections > 0 ? '#c00' : '#0a7'};border:1px solid ${v.vtDetections > 0 ? '#f0b0b0' : '#a5d5a5'};" title="Détections VirusTotal">🛡️ ${v.vtDetections}/${v.vtTotal}</span>` : ''}
+          <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;background:${v.pe?'#e0f5e0':'#ffe0e0'};color:${v.pe?'#0a7':'#c00'};border:1px solid ${v.pe?'#a5d5a5':'#f0b0b0'};">${v.pe ? '✅ PE valide' : '❌ PE invalide'}</span>
         </span>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px;color:#444;margin-bottom:8px;">
-        <span><b style="color:#666;">Blocs modifiés :</b> <span style="color:var(--panel-blue);font-weight:600;">${v.blocks || '—'}</span></span>
-        <span><b style="color:#666;">Stratégie :</b> ${HEX_STRAT_LABELS[v.strategy] || v.strategy}</span>
-        <span><b style="color:#666;">Octets modifiés :</b> ${v.offsets.length}</span>
-        <span><b style="color:#666;">Entropie :</b> <span style="color:#0a7;">${v.entropy}/8</span></span>
-        ${v.breakRisk ? `<span style="grid-column:1 / -1;"><b style="color:#666;">Risque de cassure :</b> ${v.breakRisk.level==='high'?'<span style="color:#c00;font-weight:700;">🔴 Élevé</span>':v.breakRisk.level==='low'?'<span style="color:#0a7;font-weight:700;">🟢 Faible</span>':'<span style="color:#e0a800;font-weight:700;">🟡 Inconnu</span>'} <span style="color:#888;font-size:10px;">— ${v.breakRisk.reason}</span></span>` : ''}
-        <span style="grid-column:1 / -1;" title="${v.hash}"><b style="color:#666;">SHA-256 :</b> <span style="color:var(--panel-blue);font-family:monospace;">${v.hash.substring(0,20)}…</span></span>
-      </div>
-      <div style="margin-bottom:6px;">
-        <label style="font-size:10px;color:#666;display:block;margin-bottom:2px;">Note :</label>
-        <input value="${(v.note || '').replace(/"/g, '&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Ajouter une note…" style="width:100%;font-size:11px;padding:5px 6px;border:1px solid #ccc;border-radius:3px;box-sizing:border-box;">
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button onclick="showHexDiff(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">🔍 Comparer</button>
-        <button onclick="redownloadHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">⬇️ Télécharger</button>
-        <button onclick="scanHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">🛡️ Scanner</button>
-        <button onclick="deleteHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;background:#ffe0e0;border:1px solid #d99;border-radius:4px;color:#c00;">🗑️ Supprimer</button>
+      <div style="padding:10px 11px;">
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:11.5px;color:#333;margin-bottom:9px;">
+          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">🧱</span><b style="color:#666;min-width:70px;">Blocs</b> <span style="color:var(--panel-blue);font-weight:600;">${v.blocks || '—'}</span></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">⚗️</span><b style="color:#666;min-width:70px;">Stratégie</b> <span>${HEX_STRAT_LABELS[v.strategy] || v.strategy}</span></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">🔢</span><b style="color:#666;min-width:70px;">Octets</b> <span>${v.offsets.length}</span></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">📊</span><b style="color:#666;min-width:70px;">Entropie</b> <span style="color:#0a7;">${v.entropy}/8</span></div>
+          <div style="display:flex;align-items:flex-start;gap:6px;"><span style="width:18px;text-align:center;">⚠️</span><b style="color:#666;min-width:70px;">Risque</b> <span>${riskBadge}${v.breakRisk?` <span style="color:#888;font-size:10px;">— ${v.breakRisk.reason}</span>`:''}</span></div>
+          <div style="display:flex;align-items:center;gap:6px;" title="${v.hash}"><span style="width:18px;text-align:center;">🔑</span><b style="color:#666;min-width:70px;">SHA-256</b> <span style="color:var(--panel-blue);font-family:monospace;font-size:10px;">${v.hash.substring(0,24)}…</span></div>
+        </div>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">📝 Note</label>
+          <input value="${(v.note || '').replace(/"/g, '&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Ajouter une note…" style="width:100%;font-size:11px;padding:6px 8px;box-sizing:border-box;">
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button onclick="showHexDiff(${i})" style="font-size:11px;flex:1;min-width:70px;">🔍 Comparer</button>
+          <button onclick="redownloadHexVariant(${i})" style="font-size:11px;flex:1;min-width:70px;">⬇️ Télécharger</button>
+          <button onclick="scanHexVariant(${i})" style="font-size:11px;flex:1;min-width:70px;">🛡️ Scanner</button>
+        </div>
+        <button onclick="deleteHexVariant(${i})" style="width:100%;margin-top:6px;font-size:11px;background:linear-gradient(180deg,#fff0f0,#ffe0e0);border:1px solid #e0a0a0;color:#c00;">🗑️ Supprimer</button>
       </div>
     </div>`;
   });
