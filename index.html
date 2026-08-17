@@ -119,25 +119,25 @@
   /* PE */
   .pe-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .pe-field label{display:block;font-size:12px;color:#555;margin-bottom:3px;}
-  .pe-field input,.pe-field select{width:100%;padding:7px;border:1px solid #b0aca2;border-top-color:#8a867c;border-radius:5px;font-size:13px;box-shadow:0 1px 2px rgba(0,0,0,.06) inset;}
+  .pe-field input,.pe-field select{width:100%;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:13px;}
   .pe-sections{font-size:12px;font-family:monospace;}
   .pe-sections div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #ccc;}
   /* Historique */
   .hist-table{width:100%;border-collapse:collapse;font-size:12px;}
-  .hist-table th{background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:var(--panel-blue);padding:6px 8px;text-align:left;border:1px solid #c8ccd8;font-weight:700;}
-  .hist-table td{padding:6px 8px;border:1px solid #e5e2da;vertical-align:middle;}
+  .hist-table th{background:#d4d0c8;padding:5px 8px;text-align:left;border:1px solid var(--win-border);}
+  .hist-table td{padding:5px 8px;border:1px solid #ddd;vertical-align:middle;}
   .hist-table tr:nth-child(even){background:#f5f3ee;}
   .hist-table .actions{display:flex;gap:4px;}
   .hist-table button{padding:3px 8px;font-size:11px;}
   .hash-short{font-family:monospace;font-size:11px;}
   /* Diff */
   .diff-table{width:100%;border-collapse:collapse;font-size:12px;font-family:monospace;}
-  .diff-table th{background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:var(--panel-blue);padding:6px 8px;text-align:left;border:1px solid #c8ccd8;font-weight:700;}
-  .diff-table td{padding:5px 8px;border:1px solid #e5e2da;}
+  .diff-table th{background:#d4d0c8;padding:5px 8px;text-align:left;border:1px solid var(--win-border);}
+  .diff-table td{padding:4px 8px;border:1px solid #ddd;}
   .diff-old{color:var(--red);font-weight:700;}
   .diff-new{color:var(--green);font-weight:700;}
   /* Journal */
-  .journal{background:linear-gradient(180deg,#fdfdfb,#f6f4ee);border:1px solid #c5c1b7;border-top-color:#fff;border-radius:8px;box-shadow:inset 0 1px 3px rgba(0,0,0,.04);height:100px;overflow-y:auto;padding:8px;font-size:12px;font-family:"Consolas","Menlo",monospace;color:#222;}
+  .journal{background:#fff;border:1px solid var(--win-border);border-radius:3px;height:100px;overflow-y:auto;padding:8px;font-size:12px;font-family:"Consolas","Menlo",monospace;color:#222;}
   .journal div{margin-bottom:2px;}
   .statusbar{display:flex;justify-content:space-between;padding:6px 12px;font-size:12px;background:#e6e6e6;border-top:1px solid #b8b8b8;}
   .link{color:var(--panel-blue);text-decoration:underline;cursor:pointer;font-size:13px;}
@@ -145,7 +145,7 @@
   .malicious{color:var(--red);font-weight:700;}
   .clean{color:var(--green);font-weight:700;}
   .dl-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:linear-gradient(180deg,#f5fff5,#dcf0dc);border:1px solid #7ab07a;border-radius:20px;cursor:pointer;font-size:12.5px;font-weight:500;margin-top:8px;color:#1a6a30;}
-  .import-list{font-size:11px;font-family:monospace;background:#fff;border:1px solid #c5c1b7;border-top-color:#fff;border-radius:8px;max-height:200px;overflow-y:auto;padding:6px;}
+  .import-list{font-size:11px;font-family:monospace;background:#fff;border:1px solid var(--win-border);border-radius:3px;max-height:200px;overflow-y:auto;padding:6px;}
   .import-dll{font-weight:700;color:var(--panel-blue);padding:2px 0;}
   .import-fn{color:#555;padding-left:14px;padding-top:1px;}
   .pe-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
@@ -158,6 +158,22 @@
   .res-item{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;border-bottom:1px dashed #ddd;}
   .icon-preview-wrap{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
   .icon-preview{image-rendering:pixelated;border:1px solid var(--win-border);border-radius:2px;background:#777;}
+  /* Pack d'icônes 16×16 */
+  .iconpack-panel{margin-top:10px;border:1px solid #c5d5ee;background:#f4f8ff;border-radius:6px;padding:10px;}
+  .iconpack-head{font-size:11.5px;color:var(--panel-blue);font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+  .iconpack-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:6px;max-height:230px;overflow-y:auto;padding:4px;background:#fff;border:1px solid #d5dced;border-radius:5px;}
+  .iconpack-cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:#eef2fb;border:1px solid #d5dced;border-radius:5px;cursor:pointer;transition:all .12s ease;padding:4px;}
+  .iconpack-cell:hover{border-color:var(--accent);background:#e3edff;box-shadow:0 0 0 2px var(--accent-glow);transform:translateY(-1px);}
+  .iconpack-cell:active{transform:translateY(0);}
+  .iconpack-cell canvas{width:32px;height:32px;image-rendering:auto;}
+  /* Gestionnaire de tailles d'icônes */
+  .iconmgr-row{display:flex;align-items:center;gap:10px;padding:7px 8px;border-bottom:1px solid #e5e9f2;font-size:12px;background:#fff;}
+  .iconmgr-row:last-child{border-bottom:none;}
+  .iconmgr-row canvas{width:32px;height:32px;border:1px solid #d5dced;border-radius:4px;background:#f0f0f0;flex:none;}
+  .iconmgr-row .meta{flex:1;color:#333;line-height:1.35;}
+  .iconmgr-row .meta b{color:var(--panel-blue);}
+  .iconmgr-row input[type=checkbox]{width:17px;height:17px;flex:none;cursor:pointer;}
+  .iconmgr-row.dropped{opacity:.45;background:#faf0f0;}
   .overlay-bar{background:#fff3cd;border:1px solid #ffc107;border-radius:4px;padding:8px;font-size:12px;}
 
   @media(max-width:480px){.pe-grid{grid-template-columns:1fr;}.facts b{min-width:90px;}body{padding:8px;}.tab{padding:6px 9px;font-size:11px;}}
@@ -327,7 +343,30 @@
           <button id="peModManifest" class="hidden">✏️ Modifier Manifest</button>
           <button id="peRandomIcons" class="hidden">🎲 Randomiser icônes</button>
           <button id="peReplaceIconBtn" class="hidden">🖼️ Remplacer l'icône</button>
+          <button id="peIconPackBtn" class="hidden">🎨 Pack d'icônes (100)</button>
+          <button id="peIconMgrBtn" class="hidden">📐 Gérer les tailles</button>
           <input type="file" id="peReplaceIconInput" accept="image/png,image/jpeg,.ico" class="hidden" />
+        </div>
+        <div id="peIconPackPanel" class="iconpack-panel hidden">
+          <div class="iconpack-head">
+            <span>Clique une icône pour remplacer celle du fichier chargé — icônes originales générées (16×16, redimensionnées à la taille de l'icône cible).</span>
+          </div>
+          <div class="iconpack-grid" id="peIconPackGrid"></div>
+        </div>
+        <div id="peIconMgrPanel" class="iconpack-panel hidden">
+          <div class="iconpack-head">
+            <span>Tailles du groupe d'icônes principal — décoche celles à supprimer. Réécriture <b>sur place</b> du groupe : aucun octet déplacé, PE non cassé (le fichier ne rétrécit pas).</span>
+          </div>
+          <div id="peIconMgrList" style="border:1px solid #d5dced;border-radius:5px;overflow:hidden;"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <button id="peIconKeep16">Garder seulement 16×16</button>
+            <button class="primary" id="peIconApplyKeep" style="width:auto;flex:1;">🗑️ Appliquer</button>
+          </div>
+          <div id="peIconMgrNote" style="font-size:11px;color:#888;margin-top:6px;"></div>
+          <div style="margin-top:10px;border-top:1px dashed #cdd6e8;padding-top:10px;">
+            <button class="primary" id="peIconCompact" style="width:100%;background:linear-gradient(180deg,#e8f5e9,#a5d6a7);color:#1a5e2a;border-color:#78b98a;" disabled>🧹 Réduire physiquement le fichier (retirer les icônes orphelines)</button>
+            <div id="peIconCompactNote" style="font-size:11px;color:#888;margin-top:6px;"></div>
+          </div>
         </div>
       </fieldset>
 
@@ -730,12 +769,12 @@
       <div id="diffEmpty" class="empty-msg">Charge et modifie un fichier depuis l'éditeur PE ou Hex,<br>puis exporte-le pour voir la comparaison ici.</div>
       <div id="diffContent" class="hidden">
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">
-          <div style="flex:1;min-width:0;background:linear-gradient(180deg,#fff,#fdf6f6);border:1px solid #f0d0d0;border-radius:8px;padding:10px;box-shadow:0 1px 2px rgba(0,0,0,.05);">
-            <div style="font-size:10px;color:#c00;margin-bottom:4px;font-weight:700;letter-spacing:.02em;">🔑 SHA-256 ORIGINAL</div>
+          <div style="flex:1;background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
+            <div style="font-size:11px;color:#888;margin-bottom:4px;">SHA-256 ORIGINAL</div>
             <div id="diffHashOrig" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--red);"></div>
           </div>
-          <div style="flex:1;min-width:0;background:linear-gradient(180deg,#fff,#f6fdf8);border:1px solid #c5e5c5;border-radius:8px;padding:10px;box-shadow:0 1px 2px rgba(0,0,0,.05);">
-            <div style="font-size:10px;color:#0a7;margin-bottom:4px;font-weight:700;letter-spacing:.02em;">🔑 SHA-256 MODIFIÉ</div>
+          <div style="flex:1;background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
+            <div style="font-size:11px;color:#888;margin-bottom:4px;">SHA-256 MODIFIÉ</div>
             <div id="diffHashNew" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--green);"></div>
           </div>
         </div>
@@ -1376,6 +1415,9 @@ function parsePE(){
           if(canvas) iconWrap.appendChild(canvas);
           $("peRandomIcons").classList.remove("hidden");
           $("peReplaceIconBtn").classList.remove("hidden");
+          $("peIconPackBtn").classList.remove("hidden");
+          $("peIconMgrBtn").classList.remove("hidden");
+          try{ renderIconManager(); }catch(e){ console.warn('iconmgr:',e); }
         }
       }
       if(resHtml){
@@ -1420,59 +1462,526 @@ function applyPEChanges(){
   $("peChecksum").value="0x"+cs.toString(16).toUpperCase().padStart(8,"0");
 }
 
-$("peReplaceIconBtn").addEventListener("click",()=>$("peReplaceIconInput").click());
-$("peReplaceIconInput").addEventListener("change",()=>{
-  const f=$("peReplaceIconInput").files[0];
-  if(!f||!peResources||!peResources.icons) return;
+// ─── Writer d'icône partagé ───────────────────────────────────────────────
+// renderAt(size) doit renvoyer un <canvas> size×size déjà dessiné (fond
+// transparent autorisé, l'alpha est repris). Écrit les pixels BGRA en place
+// dans la ressource RT_ICON, à la taille de l'icône d'origine du PE.
+// Renvoie true si l'écriture a réussi, false sinon.
+function writeIconIntoPE(renderAt){
+  if(!peBytes||!peResources||!peResources.icons){alert("Charge d'abord un PE contenant une icône.");return false;}
   const iOff=rvaToOff(peResources.icons.rva,peSectionsList);
-  if(iOff<0){alert("Offset icône introuvable.");return;}
+  if(iOff<0){alert("Offset icône introuvable.");return false;}
   const iSize=peResources.icons.size;
+  // Localise le BITMAPINFOHEADER (0x28 = 40) et lit la largeur d'origine.
   let origW=32,origHOff=iOff;
   for(let i=iOff;i<iOff+Math.min(iSize,200)&&i<peBytes.length-4;i++){
     if(peBytes[i]===0x28&&peBytes[i+1]===0&&peBytes[i+2]===0&&peBytes[i+3]===0){
       origW=readU32LE(peBytes,i+4)||32;origHOff=i;break;
     }
   }
-  const img=new Image();
-  img.onload=()=>{
-    const c=document.createElement('canvas');
-    c.width=origW;c.height=origW;
-    const ctx=c.getContext('2d');
-    ctx.drawImage(img,0,0,origW,origW);
-    const px=ctx.getImageData(0,0,origW,origW).data;
-    const b=peBytes;
-    const rowStride=origW*4;
-    const newPixSize=origW*rowStride;
-    const needed=40+newPixSize;
-
-    if(needed>iSize){
-      alert(`Image trop grande pour cette ressource.\n\nEspace disponible : ${iSize} octets\nRequis : ${needed} octets\n\nUtilise une image plus petite ou de mêmes dimensions que l'icône d'origine (${origW}×${origW}px).`);
-      return;
-    }
-
-    let o=origHOff;
-    writeU32LE(b,o,40);writeU32LE(b,o+4,origW);writeU32LE(b,o+8,origW*2);
-    writeU16LE(b,o+12,1);writeU16LE(b,o+14,32);writeU32LE(b,o+16,0);
-    writeU32LE(b,o+20,newPixSize);writeU32LE(b,o+24,0);writeU32LE(b,o+28,0);
-    writeU32LE(b,o+32,0);writeU32LE(b,o+36,0);
-    const pixStart=origHOff+40;
-    for(let row=0;row<origW;row++){
-      const srcRow=origW-1-row;
-      for(let col=0;col<origW;col++){
-        const srcIdx=(srcRow*origW+col)*4;
-        const dstOff=pixStart+row*rowStride+col*4;
-        if(dstOff+4<=b.length&&dstOff<iOff+iSize){
-          b[dstOff]=px[srcIdx+2];b[dstOff+1]=px[srcIdx+1];
-          b[dstOff+2]=px[srcIdx];b[dstOff+3]=px[srcIdx+3];
-        }
+  const c=renderAt(origW);
+  const ctx=c.getContext('2d');
+  const px=ctx.getImageData(0,0,origW,origW).data;
+  const b=peBytes;
+  const rowStride=origW*4;
+  const newPixSize=origW*rowStride;
+  const needed=40+newPixSize;
+  if(needed>iSize){
+    alert(`Image trop grande pour cette ressource.\n\nEspace disponible : ${iSize} octets\nRequis : ${needed} octets\n\nL'icône cible fait ${origW}×${origW}px.`);
+    return false;
+  }
+  // Réécrit le BITMAPINFOHEADER (32 bits/pixel) puis les pixels BGRA bottom-up.
+  let o=origHOff;
+  writeU32LE(b,o,40);writeU32LE(b,o+4,origW);writeU32LE(b,o+8,origW*2);
+  writeU16LE(b,o+12,1);writeU16LE(b,o+14,32);writeU32LE(b,o+16,0);
+  writeU32LE(b,o+20,newPixSize);writeU32LE(b,o+24,0);writeU32LE(b,o+28,0);
+  writeU32LE(b,o+32,0);writeU32LE(b,o+36,0);
+  const pixStart=origHOff+40;
+  for(let row=0;row<origW;row++){
+    const srcRow=origW-1-row;
+    for(let col=0;col<origW;col++){
+      const srcIdx=(srcRow*origW+col)*4;
+      const dstOff=pixStart+row*rowStride+col*4;
+      if(dstOff+4<=b.length&&dstOff<iOff+iSize){
+        b[dstOff]=px[srcIdx+2];b[dstOff+1]=px[srcIdx+1];
+        b[dstOff+2]=px[srcIdx];b[dstOff+3]=px[srcIdx+3];
       }
     }
-    log(`Icône remplacée par "${f.name}" (${origW}×${origW}px)`);
-    parsePE();
+  }
+  return true;
+}
+
+$("peReplaceIconBtn").addEventListener("click",()=>$("peReplaceIconInput").click());
+$("peReplaceIconInput").addEventListener("change",()=>{
+  const f=$("peReplaceIconInput").files[0];
+  if(!f||!peResources||!peResources.icons) return;
+  const img=new Image();
+  img.onload=()=>{
+    const ok=writeIconIntoPE(size=>{
+      const c=document.createElement('canvas');c.width=size;c.height=size;
+      c.getContext('2d').drawImage(img,0,0,size,size);
+      return c;
+    });
+    if(ok){log(`Icône remplacée par "${f.name}"`);parsePE();}
   };
   img.onerror=()=>alert("Image non lisible.");
   img.src=URL.createObjectURL(f);
 });
+
+// ─── Pack de 100 icônes originales générées (10 formes × 10 couleurs) ────────
+// Chaque icône est dessinée par code, donc nette à n'importe quelle taille.
+const ICONPACK_COLORS=[
+  {name:"rouge",   fill:"#e2453a",dark:"#a82c23"},
+  {name:"orange",  fill:"#f08a24",dark:"#b8611a"},
+  {name:"ambre",   fill:"#f4c020",dark:"#c2900a"},
+  {name:"vert",    fill:"#3aa84f",dark:"#237a36"},
+  {name:"teal",    fill:"#1aa89b",dark:"#0d7a70"},
+  {name:"bleu",    fill:"#2b8fe6",dark:"#1866c4"},
+  {name:"indigo",  fill:"#4a5bd0",dark:"#2f3ba0"},
+  {name:"violet",  fill:"#8a4bd0",dark:"#5f2fa0"},
+  {name:"rose",    fill:"#e24a9b",dark:"#b02c72"},
+  {name:"ardoise", fill:"#5a6473",dark:"#3a424e"}
+];
+const ICONPACK_SHAPES=["disque","carre","triangle","losange","etoile","coeur","anneau","croix","goutte","hexagone"];
+
+function drawPackShape(ctx,size,shape,col){
+  const s=size, m=s*0.14, cx=s/2, cy=s/2, r=s/2-m;
+  ctx.clearRect(0,0,s,s);
+  ctx.fillStyle=col.fill; ctx.strokeStyle=col.dark; ctx.lineWidth=Math.max(1,s*0.06);
+  ctx.lineJoin="round"; ctx.lineCap="round";
+  const poly=(pts)=>{ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.closePath();ctx.fill();ctx.stroke();};
+  switch(shape){
+    case "disque":
+      ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.fill();ctx.stroke();break;
+    case "carre":{
+      const rr=s*0.16,x=m,y=m,w=s-2*m,h=s-2*m;
+      ctx.beginPath();ctx.moveTo(x+rr,y);ctx.arcTo(x+w,y,x+w,y+h,rr);ctx.arcTo(x+w,y+h,x,y+h,rr);
+      ctx.arcTo(x,y+h,x,y,rr);ctx.arcTo(x,y,x+w,y,rr);ctx.closePath();ctx.fill();ctx.stroke();break;}
+    case "triangle":
+      poly([[cx,m],[s-m,s-m],[m,s-m]]);break;
+    case "losange":
+      poly([[cx,m],[s-m,cy],[cx,s-m],[m,cy]]);break;
+    case "etoile":{
+      const pts=[];for(let i=0;i<10;i++){const ang=-Math.PI/2+i*Math.PI/5;const rad=i%2?r*0.45:r;pts.push([cx+Math.cos(ang)*rad,cy+Math.sin(ang)*rad]);}poly(pts);break;}
+    case "coeur":{
+      ctx.beginPath();const t=cy-r*0.35;
+      ctx.moveTo(cx,cy+r*0.85);
+      ctx.bezierCurveTo(cx+r*1.3,t-r*0.1,cx+r*0.35,m-r*0.15,cx,t+r*0.25);
+      ctx.bezierCurveTo(cx-r*0.35,m-r*0.15,cx-r*1.3,t-r*0.1,cx,cy+r*0.85);
+      ctx.closePath();ctx.fill();ctx.stroke();break;}
+    case "anneau":
+      ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.arc(cx,cy,r*0.5,0,7,true);ctx.fill("evenodd");
+      ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.stroke();
+      ctx.beginPath();ctx.arc(cx,cy,r*0.5,0,7);ctx.stroke();break;
+    case "croix":{
+      const t=r*0.42;
+      poly([[cx-t,m],[cx+t,m],[cx+t,cy-t],[s-m,cy-t],[s-m,cy+t],[cx+t,cy+t],
+            [cx+t,s-m],[cx-t,s-m],[cx-t,cy+t],[m,cy+t],[m,cy-t],[cx-t,cy-t]]);break;}
+    case "goutte":{
+      ctx.beginPath();ctx.moveTo(cx,m);
+      ctx.bezierCurveTo(cx+r*1.15,cy,cx+r*0.95,s-m,cx,s-m);
+      ctx.bezierCurveTo(cx-r*0.95,s-m,cx-r*1.15,cy,cx,m);
+      ctx.closePath();ctx.fill();ctx.stroke();break;}
+    case "hexagone":{
+      const pts=[];for(let i=0;i<6;i++){const ang=-Math.PI/2+i*Math.PI/3;pts.push([cx+Math.cos(ang)*r,cy+Math.sin(ang)*r]);}poly(pts);break;}
+  }
+}
+
+let iconPackBuilt=false;
+function buildIconPack(){
+  const grid=$("peIconPackGrid"); if(!grid) return;
+  grid.innerHTML="";
+  let idx=0;
+  for(const shape of ICONPACK_SHAPES){
+    for(const col of ICONPACK_COLORS){
+      idx++;
+      const cell=document.createElement("div");
+      cell.className="iconpack-cell";
+      cell.title=`${shape} ${col.name}`;
+      const cv=document.createElement("canvas");
+      cv.width=64;cv.height=64;               // rendu net pour la vignette
+      drawPackShape(cv.getContext('2d'),64,shape,col);
+      cell.appendChild(cv);
+      const _shape=shape,_col=col;
+      cell.addEventListener("click",()=>{
+        const ok=writeIconIntoPE(size=>{
+          const c=document.createElement('canvas');c.width=size;c.height=size;
+          drawPackShape(c.getContext('2d'),size,_shape,_col);
+          return c;
+        });
+        if(ok){log(`Icône remplacée — ${_shape} ${_col.name} (pack généré)`);parsePE();
+          if(typeof toast==="function") toast(`Icône « ${_shape} ${_col.name} » appliquée ✅`);}
+      });
+      grid.appendChild(cell);
+    }
+  }
+  iconPackBuilt=true;
+}
+
+$("peIconPackBtn").addEventListener("click",()=>{
+  const panel=$("peIconPackPanel");
+  const show=panel.classList.contains("hidden");
+  if(show && !iconPackBuilt) buildIconPack();
+  panel.classList.toggle("hidden");
+  $("peIconPackBtn").textContent=show?"🎨 Masquer le pack":"🎨 Pack d'icônes (100)";
+});
+
+// ─── Gestionnaire de tailles d'icônes (façon Resource Hacker, réécriture sûre) ─
+// Lit RT_GROUP_ICON (type 14) → liste toutes les tailles du groupe + leur RT_ICON.
+// La suppression réécrit le GRPICONDIR sur place : aucun octet déplacé.
+let peIconGroup=null;   // {off, count, dataEntryOff, entries:[{w,h,bpp,id,entryOff,imgRva,imgSize}]}
+
+// Parcourt l'arbre .rsrc et renvoie toutes les feuilles d'un type donné.
+function iconLeavesForType(b,secs,ddb,tid){
+  const rsrcRVA=readU32LE(b,ddb+16); if(!rsrcRVA) return [];
+  const rsrcOff=rvaToOff(rsrcRVA,secs); if(rsrcOff<0) return [];
+  const read=(off)=>{
+    const named=readU16LE(b,off+12),id=readU16LE(b,off+14);
+    const entries=[]; let eOff=off+16;
+    for(let i=0;i<named+id&&eOff+8<=b.length;i++){entries.push({id:readU32LE(b,eOff),data:readU32LE(b,eOff+4)});eOff+=8;}
+    return entries;
+  };
+  const out=[];
+  for(const e1 of read(rsrcOff)){
+    if((e1.id&0x7FFFFFFF)===tid && (e1.data&0x80000000)){
+      for(const e2 of read(rsrcOff+(e1.data&0x7FFFFFFF))){
+        const resId=e2.id&0x7FFFFFFF;
+        const walk=(node)=>{
+          if(node.data&0x80000000){ for(const e3 of read(rsrcOff+(node.data&0x7FFFFFFF))) walk(e3); }
+          else { const dOff=rsrcOff+(node.data&0x7FFFFFFF); out.push({resId,rva:readU32LE(b,dOff),size:readU32LE(b,dOff+4),dataEntryOff:dOff}); }
+        };
+        walk(e2);
+      }
+    }
+  }
+  return out;
+}
+
+function parseIconGroup(){
+  peIconGroup=null;
+  const b=peBytes; if(!b) return null;
+  const groups=iconLeavesForType(b,peSectionsList,peDataDirBase,14);
+  const images=iconLeavesForType(b,peSectionsList,peDataDirBase,3);
+  if(!groups.length) return null;
+  groups.sort((a,z)=>a.resId-z.resId);           // le shell utilise le groupe d'ID le plus bas
+  const g=groups[0];
+  const gOff=rvaToOff(g.rva,peSectionsList); if(gOff<0) return null;
+  const count=readU16LE(b,gOff+4);
+  const entries=[]; let p=gOff+6;
+  for(let i=0;i<count && p+14<=b.length;i++){
+    const id=readU16LE(b,p+12);
+    const img=images.find(im=>im.resId===id);
+    entries.push({
+      w:b[p]||256, h:b[p+1]||256, bpp:readU16LE(b,p+6),
+      bytesInRes:readU32LE(b,p+8), id, entryOff:p,
+      imgRva:img?img.rva:0, imgSize:img?img.size:0
+    });
+    p+=14;
+  }
+  peIconGroup={off:gOff,count,dataEntryOff:g.dataEntryOff,entries,nGroups:groups.length};
+  return peIconGroup;
+}
+
+function renderIconManager(){
+  const g=parseIconGroup();
+  const list=$("peIconMgrList"), note=$("peIconMgrNote");
+  if(!g || !g.entries.length){ $("peIconMgrBtn").classList.add("hidden"); return; }
+  list.innerHTML="";
+  g.entries.forEach((e,i)=>{
+    const row=document.createElement("div");
+    row.className="iconmgr-row";
+    const cb=document.createElement("input");
+    cb.type="checkbox"; cb.checked=true; cb.dataset.idx=i;
+    cb.addEventListener("change",()=>row.classList.toggle("dropped",!cb.checked));
+    // aperçu de CETTE taille
+    let canvas=null;
+    if(e.imgRva){ const io=rvaToOff(e.imgRva,peSectionsList); if(io>=0) canvas=drawIconOnCanvas(peBytes,io,e.imgSize); }
+    if(!canvas){ canvas=document.createElement("canvas"); canvas.width=canvas.height=32; }
+    const meta=document.createElement("div");
+    meta.className="meta";
+    meta.innerHTML=`<b>${e.w}×${e.h}</b> · ${e.bpp||'?'} bits · ID ${e.id} · ${(e.imgSize/1024).toFixed(1)} Ko`;
+    row.appendChild(cb); row.appendChild(canvas); row.appendChild(meta);
+    list.appendChild(row);
+  });
+  note.textContent=g.nGroups>1
+    ? `${g.entries.length} tailles · ${g.nGroups} groupes d'icônes présents (seul le principal est édité ici).`
+    : `${g.entries.length} tailles dans le groupe.`;
+  // Bouton "garder seulement 16×16" : actif seulement si un 16×16 existe
+  const has16=g.entries.some(e=>e.w===16&&e.h===16);
+  $("peIconKeep16").disabled=!has16;
+  $("peIconKeep16").title=has16?"":"Ce fichier n'a pas de taille 16×16";
+  try{ updateCompactHint(); }catch(e){ console.warn('compactHint:',e); }
+}
+
+// Réécrit le GRPICONDIR pour ne garder que les entrées cochées. Sur place.
+function applyIconKeep(keepIdx){
+  const g=peIconGroup; if(!g) return;
+  const kept=g.entries.filter((e,i)=>keepIdx.has(i));
+  if(kept.length===0){ alert("Garde au moins une taille — impossible de tout supprimer."); return; }
+  if(kept.length===g.entries.length){ alert("Aucune taille décochée : rien à supprimer."); return; }
+  const b=peBytes;
+  // Recopie à l'identique les entrées conservées (14 octets chacune), compactées.
+  const snaps=kept.map(e=>b.slice(e.entryOff,e.entryOff+14));
+  writeU16LE(b,g.off+4,kept.length);              // idCount
+  let p=g.off+6;
+  for(const snap of snaps){ b.set(snap,p); p+=14; }
+  const oldEnd=g.off+6+g.count*14;                // zéro sur l'ancienne queue
+  for(let i=p;i<oldEnd;i++) b[i]=0;
+  writeU32LE(b,g.dataEntryOff+4,6+kept.length*14);// Size du data-entry du groupe
+  const removed=g.entries.length-kept.length;
+  log(`${removed} taille(s) d'icône retirée(s) du groupe · ${kept.length} conservée(s) : ${kept.map(e=>e.w+'×'+e.h).join(', ')}`);
+  if(typeof toast==="function") toast(`${removed} taille(s) supprimée(s) ✅`);
+  parsePE();                                       // re-parse + re-render
+}
+
+$("peIconMgrBtn").addEventListener("click",()=>{
+  const panel=$("peIconMgrPanel");
+  const show=panel.classList.contains("hidden");
+  if(show) renderIconManager();
+  panel.classList.toggle("hidden");
+  $("peIconMgrBtn").textContent=show?"📐 Masquer les tailles":"📐 Gérer les tailles";
+});
+$("peIconKeep16").addEventListener("click",()=>{
+  if(!peIconGroup) return;
+  const keep=new Set();
+  peIconGroup.entries.forEach((e,i)=>{ if(e.w===16&&e.h===16) keep.add(i); });
+  if(keep.size===0){ alert("Pas de taille 16×16 dans ce fichier."); return; }
+  applyIconKeep(keep);
+});
+$("peIconApplyKeep").addEventListener("click",()=>{
+  if(!peIconGroup) return;
+  const keep=new Set();
+  $("peIconMgrList").querySelectorAll('input[type=checkbox]').forEach(cb=>{ if(cb.checked) keep.add(parseInt(cb.dataset.idx)); });
+  applyIconKeep(keep);
+});
+
+// ═══ RÉDUCTION PHYSIQUE DU .rsrc — reconstruction complète, cas sûr uniquement ═══
+// Retire les images d'icônes devenues orphelines (référencées par aucun groupe),
+// puis ré-sérialise entièrement la section .rsrc pour récupérer la place.
+// Verrouillé : uniquement si .rsrc est la DERNIÈRE section et sans overlay/signature
+// après elle — dans ce cas rien d'autre ne bouge, donc zéro risque de corruption.
+function alignUp(n,a){ return Math.ceil(n/a)*a; }
+
+// Lecture COMPLÈTE de l'arbre de ressources (tous types/niveaux) + copie des blobs.
+function parseRsrcTreeFull(b,rsrcOff,secs){
+  const readEntries=(off)=>{
+    const nNamed=readU16LE(b,off+12),nId=readU16LE(b,off+14);
+    const arr=[]; let e=off+16;
+    for(let i=0;i<nNamed+nId&&e+8<=b.length;i++){ arr.push({name:readU32LE(b,e),off:readU32LE(b,e+4)}); e+=8; }
+    return arr;
+  };
+  const buildDir=(dirOff)=>{
+    const node={entries:[]};
+    for(const raw of readEntries(dirOff)){
+      const isName=(raw.name&0x80000000)!==0;
+      let id=0,nameUnits=null;
+      if(isName){
+        const so=rsrcOff+(raw.name&0x7FFFFFFF);
+        const len=readU16LE(b,so); nameUnits=[];
+        for(let k=0;k<len;k++) nameUnits.push(readU16LE(b,so+2+k*2));
+      } else id=raw.name>>>0;
+      let child;
+      if(raw.off&0x80000000){ child={dir:buildDir(rsrcOff+(raw.off&0x7FFFFFFF))}; }
+      else{
+        const de=rsrcOff+(raw.off&0x7FFFFFFF);
+        const rva=readU32LE(b,de),size=readU32LE(b,de+4),cp=readU32LE(b,de+8);
+        const bo=rvaToOff(rva,secs);
+        if(bo<0) throw new Error("blob hors fichier");
+        child={leaf:{blob:b.slice(bo,bo+size),codepage:cp}};
+      }
+      node.entries.push({isName,id,nameUnits,child});
+    }
+    return node;
+  };
+  return buildDir(rsrcOff);
+}
+
+// IDs d'icônes référencés par au moins un RT_GROUP_ICON.
+function collectReferencedIconIds(root){
+  const ref=new Set();
+  const t14=root.entries.find(e=>!e.isName&&e.id===14&&e.child.dir);
+  if(!t14) return ref;
+  const walk=(node)=>{ for(const e of node.entries){ if(e.child.dir) walk(e.child.dir); else{
+    const bl=e.child.leaf.blob; if(bl.length>=6){ const cnt=bl[4]|(bl[5]<<8); let p=6;
+      for(let i=0;i<cnt&&p+14<=bl.length;i++){ ref.add(bl[p+12]|(bl[p+13]<<8)); p+=14; } } } } };
+  walk(t14.child.dir);
+  return ref;
+}
+
+// Supprime du modèle les RT_ICON (type 3) non référencés. Renvoie le nombre retiré.
+function dropOrphanIcons(root,refIds){
+  const t3=root.entries.find(e=>!e.isName&&e.id===3&&e.child.dir);
+  if(!t3) return 0;
+  const dir=t3.child.dir; let removed=0;
+  dir.entries=dir.entries.filter(e=>{
+    if(e.isName) return true;                    // icône nommée : on garde par prudence
+    if(refIds.has(e.id)) return true;
+    removed++; return false;
+  });
+  if(dir.entries.length===0) root.entries=root.entries.filter(e=>e!==t3);
+  return removed;
+}
+
+// Ré-sérialise l'arbre en une nouvelle section .rsrc (offsets internes + RVA recalculés).
+function serializeRsrc(root,rsrcRVA){
+  const dirs=[]; (function cd(n){ dirs.push(n); for(const e of n.entries) if(e.child.dir) cd(e.child.dir); })(root);
+  const leaves=[]; (function cl(n){ for(const e of n.entries){ if(e.child.dir) cl(e.child.dir); else leaves.push(e.child.leaf); } })(root);
+  const strKeys=[],strMap=new Map();
+  (function cs(n){ for(const e of n.entries){ if(e.isName){ const k=e.nameUnits.join(','); if(!strMap.has(k)){ strMap.set(k,e.nameUnits); strKeys.push(k); } } if(e.child.dir) cs(e.child.dir); } })(root);
+
+  let off=0;
+  for(const d of dirs){ d._offA=off; off+=16+8*d.entries.length; }
+  let bOff=off; const strOff=new Map();
+  for(const k of strKeys){ strOff.set(k,bOff); bOff+=2+2*strMap.get(k).length; }
+  let cOff=alignUp(bOff,4);
+  for(const lf of leaves){ lf._descOff=cOff; cOff+=16; }
+  let dOff=alignUp(cOff,4);
+  for(const lf of leaves){ dOff=alignUp(dOff,4); lf._blobOff=dOff; lf._blobRVA=rsrcRVA+dOff; dOff+=lf.blob.length; }
+  const total=dOff;
+
+  const out=new Uint8Array(total);
+  const w16=(o,v)=>{out[o]=v&0xff;out[o+1]=(v>>8)&0xff;};
+  const w32=(o,v)=>{out[o]=v&0xff;out[o+1]=(v>>8)&0xff;out[o+2]=(v>>16)&0xff;out[o+3]=(v>>>24)&0xff;};
+
+  for(const d of dirs){
+    let nNamed=0,nId=0; for(const e of d.entries){ if(e.isName)nNamed++; else nId++; }
+    let p=d._offA;
+    w32(p,0);w32(p+4,0);w16(p+8,0);w16(p+10,0);w16(p+12,nNamed);w16(p+14,nId); p+=16;
+    for(const e of d.entries){
+      const nameField=e.isName ? ((strOff.get(e.nameUnits.join(','))>>>0)|0x80000000) : (e.id>>>0);
+      const dataField=e.child.dir ? ((e.child.dir._offA>>>0)|0x80000000) : (e.child.leaf._descOff>>>0);
+      w32(p,nameField>>>0); w32(p+4,dataField>>>0); p+=8;
+    }
+  }
+  for(const k of strKeys){ const o=strOff.get(k),u=strMap.get(k); w16(o,u.length); for(let j=0;j<u.length;j++) w16(o+2+j*2,u[j]); }
+  for(const lf of leaves){ const o=lf._descOff; w32(o,lf._blobRVA>>>0); w32(o+4,lf.blob.length>>>0); w32(o+8,lf.codepage>>>0); w32(o+12,0); }
+  for(const lf of leaves){ out.set(lf.blob,lf._blobOff); }
+  return out;
+}
+
+// Analyse : combien d'orphelines + est-ce réductible sans risque ?
+function analyzeOrphanIcons(){
+  const b=peBytes;
+  if(!b||!peSectionsList||typeof peDataDirBase!=='number') return null;
+  const groups=iconLeavesForType(b,peSectionsList,peDataDirBase,14);
+  const images=iconLeavesForType(b,peSectionsList,peDataDirBase,3);
+  const ref=new Set();
+  for(const g of groups){ const go=rvaToOff(g.rva,peSectionsList); if(go<0) continue;
+    const cnt=readU16LE(b,go+4);
+    for(let i=0;i<cnt;i++){ const eo=go+6+i*14; if(eo+14>b.length) break; ref.add(readU16LE(b,eo+12)); } }
+  let orphanCount=0,orphanBytes=0;
+  for(const im of images){ if(!ref.has(im.resId)){ orphanCount++; orphanBytes+=im.size; } }
+  let blocked=null;
+  const rrva=readU32LE(b,peDataDirBase+16);
+  const rsrcSec=peSectionsList.find(s=>rrva>=s.va&&rrva<s.va+Math.max(s.vsize,s.rawSize));
+  if(!rsrcSec) blocked="Section de ressources introuvable.";
+  else{
+    const rawEnd=rsrcSec.rawOffset+rsrcSec.rawSize;
+    const notLast=peSectionsList.some(s=>s!==rsrcSec&&(s.rawOffset>rsrcSec.rawOffset||s.va>rsrcSec.va));
+    if(notLast) blocked=".rsrc n'est pas la dernière section — réduction non supportée (risque de corruption).";
+    else if(b.length>rawEnd) blocked="Données après .rsrc (overlay ou signature). Retire-les d'abord (boutons Signature / Overlay ci-dessus).";
+  }
+  return {orphanCount,orphanBytes,blocked};
+}
+
+function updateCompactHint(){
+  const btn=$("peIconCompact"),note=$("peIconCompactNote"); if(!btn) return;
+  const info=analyzeOrphanIcons();
+  if(!info||info.orphanCount===0){
+    btn.disabled=true;
+    note.textContent=info?"Aucune icône orpheline. Retire d'abord des tailles ci-dessus, puis reviens ici.":"";
+    return;
+  }
+  if(info.blocked){
+    btn.disabled=true;
+    note.innerHTML=`${info.orphanCount} orpheline(s) · ~${(info.orphanBytes/1024).toFixed(1)} Ko.<br><span style="color:#c00;">⚠️ ${info.blocked}</span>`;
+    return;
+  }
+  btn.disabled=false;
+  note.innerHTML=`${info.orphanCount} image(s) orpheline(s) · ~${(info.orphanBytes/1024).toFixed(1)} Ko récupérables. <span style="color:#0a7;">Réduction sûre possible ✅</span>`;
+}
+
+// Validation autonome (ne touche ni UI ni globals) — sert de garde-fou avant commit.
+function quickValidatePE(nb){
+  try{
+    if(nb[0]!==0x4D||nb[1]!==0x5A) return false;
+    const po=readU32LE(nb,0x3C);
+    if(nb[po]!==0x50||nb[po+1]!==0x45) return false;
+    const is64=(readU16LE(nb,po+24)===0x020B);
+    const ddb=po+24+(is64?112:96);
+    const secs=parseSectionsList(nb,po,readU16LE(nb,po+6),readU16LE(nb,po+20));
+    const rrva=readU32LE(nb,ddb+16); if(!rrva) return true;
+    if(rvaToOff(rrva,secs)<0) return false;
+    const groups=iconLeavesForType(nb,secs,ddb,14);
+    const images=iconLeavesForType(nb,secs,ddb,3);
+    for(const g of groups){
+      const go=rvaToOff(g.rva,secs); if(go<0) return false;
+      const cnt=readU16LE(nb,go+4);
+      for(let i=0;i<cnt;i++){ const eo=go+6+i*14; if(eo+14>nb.length) return false;
+        const im=images.find(x=>x.resId===readU16LE(nb,eo+12));
+        if(!im||rvaToOff(im.rva,secs)<0) return false; }
+    }
+    return true;
+  }catch(e){ return false; }
+}
+
+function compactRsrcRemoveOrphanIcons(){
+  const b=peBytes;
+  const info=analyzeOrphanIcons();
+  if(!info){ alert("Charge d'abord un fichier PE."); return; }
+  if(info.orphanCount===0){ alert("Aucune icône orpheline à retirer.\n\nUtilise d'abord « Gérer les tailles » pour retirer des tailles, puis reviens ici."); return; }
+  if(info.blocked){ alert("Réduction impossible sur ce fichier :\n\n"+info.blocked+"\n\n(Ton fichier reste intact.)"); return; }
+
+  const peOff=readU32LE(b,0x3C),OPT=peOff+24;
+  const fileAlign=readU32LE(b,OPT+36)||512;
+  const secAlign=readU32LE(b,OPT+32)||0x1000;
+  const rrva=readU32LE(b,peDataDirBase+16);
+  const rsrcSec=peSectionsList.find(s=>rrva>=s.va&&rrva<s.va+Math.max(s.vsize,s.rawSize));
+  const rsrcOff=rvaToOff(rrva,peSectionsList);
+  if(!rsrcSec||rsrcOff<0){ alert("Section .rsrc introuvable — abandon (fichier intact)."); return; }
+
+  let root;
+  try{ root=parseRsrcTreeFull(b,rsrcOff,peSectionsList); }
+  catch(e){ alert("Lecture de l'arbre .rsrc impossible — abandon (fichier intact)."); return; }
+
+  const removed=dropOrphanIcons(root,collectReferencedIconIds(root));
+  if(removed===0){ alert("Rien à retirer après analyse (fichier intact)."); return; }
+
+  let serialized;
+  try{ serialized=serializeRsrc(root,rsrcSec.va); }
+  catch(e){ alert("Reconstruction .rsrc échouée — abandon (fichier intact)."); return; }
+
+  const newRaw=alignUp(serialized.length,fileAlign);
+  const nb=new Uint8Array(rsrcSec.rawOffset+newRaw);
+  nb.set(b.slice(0,rsrcSec.rawOffset),0);
+  nb.set(serialized,rsrcSec.rawOffset);
+  // En-tête de section .rsrc
+  writeU32LE(nb,rsrcSec.headerOff+8,serialized.length);      // VirtualSize
+  writeU32LE(nb,rsrcSec.headerOff+16,newRaw);                // SizeOfRawData
+  // Data directory (Ressources) : RVA (au cas où la racine n'était pas en tête) + Size
+  writeU32LE(nb,peDataDirBase+16,rsrcSec.va);
+  writeU32LE(nb,peDataDirBase+20,serialized.length);
+  // SizeOfImage
+  writeU32LE(nb,OPT+56,alignUp(rsrcSec.va+serialized.length,secAlign));
+  // Checksum PE (même algo que l'export)
+  writeU32LE(nb,OPT+64,0);
+  let sum=0,carry=0;
+  for(let i=0;i<nb.length-1;i+=2){ sum+=((nb[i+1]<<8)|nb[i])+carry; carry=sum>>>16; sum&=0xffff; }
+  if(nb.length%2!==0){ sum+=nb[nb.length-1]+carry; carry=sum>>>16; sum&=0xffff; }
+  sum=(sum+carry)&0xffff;
+  writeU32LE(nb,OPT+64,(sum+nb.length)>>>0);
+
+  if(!quickValidatePE(nb)){
+    alert("⚠️ Vérification post-reconstruction échouée — modification ANNULÉE.\nTon fichier chargé est resté intact.");
+    return;
+  }
+  const saved=b.length-nb.length;
+  peBytes=nb;
+  log(`.rsrc reconstruit — ${removed} image(s) d'icône orpheline(s) retirée(s) · ${(b.length/1024).toFixed(1)}→${(nb.length/1024).toFixed(1)} Ko (${(saved/1024).toFixed(1)} Ko récupérés)`);
+  if(typeof toast==="function") toast(`Fichier réduit de ${(saved/1024).toFixed(1)} Ko ✅`);
+  parsePE();
+}
+$("peIconCompact").addEventListener("click",compactRsrcRemoveOrphanIcons);
 
 $("peRemoveSig").addEventListener("click",()=>{
   const r=removeSignature(peBytes,peDataDirBase);
@@ -2948,38 +3457,31 @@ function renderHexVariants(){
     </div></div>`;
   html += `<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">`;
   hexVariants.forEach((v, i) => {
-    const riskBadge = v.breakRisk
-      ? (v.breakRisk.level==='high'?'<span style="color:#c00;font-weight:700;">🔴 Élevé</span>'
-        : v.breakRisk.level==='low'?'<span style="color:#0a7;font-weight:700;">🟢 Faible</span>'
-        : '<span style="color:#e0a800;font-weight:700;">🟡 Inconnu</span>')
-      : '—';
-    html += `<div style="border:1px solid #c5c1b7;border-top-color:#fff;border-left-color:#fff;border-radius:8px;background:${i%2?'#eceae2':'#f6f4ee'};padding:0;box-sizing:border-box;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;padding:9px 11px;background:linear-gradient(180deg,#eef1f8,#e2e6f0);border-bottom:1px solid #c8ccd8;">
-        <span style="font-weight:700;color:var(--panel-blue);font-size:13px;display:flex;align-items:center;gap:5px;">📄 ${v.name}</span>
-        <span style="display:flex;gap:6px;align-items:center;">
-          ${v.vtTotal !== undefined ? `<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;background:${v.vtDetections > 0 ? '#ffe0e0' : '#e0f5e0'};color:${v.vtDetections > 0 ? '#c00' : '#0a7'};border:1px solid ${v.vtDetections > 0 ? '#f0b0b0' : '#a5d5a5'};" title="Détections VirusTotal">🛡️ ${v.vtDetections}/${v.vtTotal}</span>` : ''}
-          <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;background:${v.pe?'#e0f5e0':'#ffe0e0'};color:${v.pe?'#0a7':'#c00'};border:1px solid ${v.pe?'#a5d5a5':'#f0b0b0'};">${v.pe ? '✅ PE valide' : '❌ PE invalide'}</span>
+    html += `<div style="border-top:2px solid #ffffff;border-left:2px solid #ffffff;border-right:2px solid #808080;border-bottom:2px solid #808080;background:${i%2?'#e8e5dd':'#f4f2ec'};padding:10px;box-sizing:border-box;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;border-bottom:1px solid #b8b4ac;padding-bottom:6px;">
+        <span style="font-weight:700;color:var(--panel-blue);font-size:13px;">${v.name}</span>
+        <span style="display:flex;gap:8px;align-items:center;">
+          ${v.vtTotal !== undefined ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${v.vtDetections > 0 ? '#ffe0e0' : '#e0f5e0'};color:${v.vtDetections > 0 ? '#c00' : '#0a7'};" title="Détections VirusTotal">🛡️ ${v.vtDetections}/${v.vtTotal}</span>` : ''}
+          <span style="font-size:11px;font-weight:600;">${v.pe ? '<span style="color:#0a7;">✅ PE valide</span>' : '<span style="color:#c00;">❌ PE invalide</span>'}</span>
         </span>
       </div>
-      <div style="padding:10px 11px;">
-        <div style="display:flex;flex-direction:column;gap:6px;font-size:11.5px;color:#333;margin-bottom:9px;">
-          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">🧱</span><b style="color:#666;min-width:70px;">Blocs</b> <span style="color:var(--panel-blue);font-weight:600;">${v.blocks || '—'}</span></div>
-          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">⚗️</span><b style="color:#666;min-width:70px;">Stratégie</b> <span>${HEX_STRAT_LABELS[v.strategy] || v.strategy}</span></div>
-          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">🔢</span><b style="color:#666;min-width:70px;">Octets</b> <span>${v.offsets.length}</span></div>
-          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">📊</span><b style="color:#666;min-width:70px;">Entropie</b> <span style="color:#0a7;">${v.entropy}/8</span></div>
-          <div style="display:flex;align-items:flex-start;gap:6px;"><span style="width:18px;text-align:center;">⚠️</span><b style="color:#666;min-width:70px;">Risque</b> <span>${riskBadge}${v.breakRisk?` <span style="color:#888;font-size:10px;">— ${v.breakRisk.reason}</span>`:''}</span></div>
-          <div style="display:flex;align-items:center;gap:6px;" title="${v.hash}"><span style="width:18px;text-align:center;">🔑</span><b style="color:#666;min-width:70px;">SHA-256</b> <span style="color:var(--panel-blue);font-family:monospace;font-size:10px;">${v.hash.substring(0,24)}…</span></div>
-        </div>
-        <div style="margin-bottom:8px;">
-          <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">📝 Note</label>
-          <input value="${(v.note || '').replace(/"/g, '&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Ajouter une note…" style="width:100%;font-size:11px;padding:6px 8px;box-sizing:border-box;">
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button onclick="showHexDiff(${i})" style="font-size:10.5px;flex:1;min-width:64px;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🔍 Comparer</button>
-          <button onclick="redownloadHexVariant(${i})" style="font-size:10.5px;flex:1;min-width:64px;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">⬇️ Télécharger</button>
-          <button onclick="scanHexVariant(${i})" style="font-size:10.5px;flex:1;min-width:64px;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🛡️ Scanner</button>
-        </div>
-        <button onclick="deleteHexVariant(${i})" style="width:100%;margin-top:6px;font-size:11px;background:linear-gradient(180deg,#fff0f0,#ffe0e0);border:1px solid #e0a0a0;color:#c00;">🗑️ Supprimer</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px;color:#444;margin-bottom:8px;">
+        <span><b style="color:#666;">Blocs modifiés :</b> <span style="color:var(--panel-blue);font-weight:600;">${v.blocks || '—'}</span></span>
+        <span><b style="color:#666;">Stratégie :</b> ${HEX_STRAT_LABELS[v.strategy] || v.strategy}</span>
+        <span><b style="color:#666;">Octets modifiés :</b> ${v.offsets.length}</span>
+        <span><b style="color:#666;">Entropie :</b> <span style="color:#0a7;">${v.entropy}/8</span></span>
+        ${v.breakRisk ? `<span style="grid-column:1 / -1;"><b style="color:#666;">Risque de cassure :</b> ${v.breakRisk.level==='high'?'<span style="color:#c00;font-weight:700;">🔴 Élevé</span>':v.breakRisk.level==='low'?'<span style="color:#0a7;font-weight:700;">🟢 Faible</span>':'<span style="color:#e0a800;font-weight:700;">🟡 Inconnu</span>'} <span style="color:#888;font-size:10px;">— ${v.breakRisk.reason}</span></span>` : ''}
+        <span style="grid-column:1 / -1;" title="${v.hash}"><b style="color:#666;">SHA-256 :</b> <span style="color:var(--panel-blue);font-family:monospace;">${v.hash.substring(0,20)}…</span></span>
+      </div>
+      <div style="margin-bottom:6px;">
+        <label style="font-size:10px;color:#666;display:block;margin-bottom:2px;">Note :</label>
+        <input value="${(v.note || '').replace(/"/g, '&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Ajouter une note…" style="width:100%;font-size:11px;padding:5px 6px;border:1px solid #ccc;border-radius:3px;box-sizing:border-box;">
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button onclick="showHexDiff(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">🔍 Comparer</button>
+        <button onclick="redownloadHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">⬇️ Télécharger</button>
+        <button onclick="scanHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">🛡️ Scanner</button>
+        <button onclick="deleteHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;background:#ffe0e0;border:1px solid #d99;border-radius:4px;color:#c00;">🗑️ Supprimer</button>
       </div>
     </div>`;
   });
@@ -3014,29 +3516,28 @@ function showHexDiff(i){
   const v = hexVariants[i];
   const box = $("hexDiffView");
   const totalMod = v.diffs.reduce((s, d) => s + d.count, 0);
-  let html = `<div style="background:#fff;border:1px solid #c5c1b7;border-top-color:#fff;border-left-color:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">
-    <div style="padding:9px 11px;background:linear-gradient(180deg,#eef1f8,#e2e6f0);border-bottom:1px solid #c8ccd8;font-weight:700;color:var(--panel-blue);font-size:13px;">🔍 Comparaison — Original vs ${v.name}</div>
-    <div style="padding:10px 11px;">
-      <div style="display:flex;flex-direction:column;gap:5px;font-size:11px;margin-bottom:9px;">
-        <div style="display:flex;align-items:center;gap:6px;"><span style="width:16px;">🔑</span><span style="color:#888;min-width:64px;">Original</span> <span style="color:#cc1414;font-family:monospace;font-size:10px;">${v.origHash.substring(0,24)}…</span></div>
-        <div style="display:flex;align-items:center;gap:6px;"><span style="width:16px;">🔑</span><span style="color:#888;min-width:64px;">Modifié</span> <span style="color:#1a9b3a;font-family:monospace;font-size:10px;">${v.hash.substring(0,24)}…</span></div>
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#eef1f8;border:1px solid #c8ccd8;color:#333;">🔢 ${totalMod} octets</span>
-        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#eef1f8;border:1px solid #c8ccd8;color:#333;">📍 ${v.diffs.length} plage${v.diffs.length>1?'s':''}</span>
-        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:${v.pe?'#e0f5e0':'#ffe0e0'};border:1px solid ${v.pe?'#a5d5a5':'#f0b0b0'};color:${v.pe?'#0a7':'#c00'};">${v.pe ? '✅ PE valide' : '❌ PE invalide'}</span>
-        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#eef1f8;border:1px solid #c8ccd8;color:#0a7;">📊 ${v.entropy}/8</span>
-      </div>
-      <div style="max-height:180px;overflow:auto;border:1px solid #e0ddd4;border-radius:6px;">
-      <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;">
-        <tr style="background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:var(--panel-blue);"><th style="padding:5px 6px;text-align:left;position:sticky;top:0;background:#e0e4ee;">Offset</th><th style="padding:5px 6px;text-align:left;position:sticky;top:0;background:#e0e4ee;">Original</th><th style="padding:5px 6px;text-align:left;position:sticky;top:0;background:#e0e4ee;">Variante</th><th style="padding:5px 6px;position:sticky;top:0;background:#e0e4ee;">Nb</th></tr>`;
-  v.diffs.slice(0, 80).forEach((d,idx) => {
+  let html = `<div style="background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
+    <div style="font-weight:600;color:var(--panel-blue);margin-bottom:6px;">🔍 Comparaison — Original vs ${v.name}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;font-family:monospace;font-size:11px;">
+      <div><span style="color:#888;">Original :</span> <span style="color:#cc1414;">${v.origHash.substring(0,24)}…</span></div>
+      <div><span style="color:#888;">Modifié :</span> <span style="color:#1a9b3a;">${v.hash.substring(0,24)}…</span></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:11px;">
+      <span>Octets modifiés : <b>${totalMod}</b></span>
+      <span>Plages : <b>${v.diffs.length}</b></span>
+      <span>PE : <b>${v.pe ? '✅ valide' : '❌ invalide'}</b></span>
+      <span>Entropie : <b style="color:#0a7;">${v.entropy}</b></span>
+    </div>
+    <div style="max-height:180px;overflow-y:auto;">
+    <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;">
+      <tr style="background:#d4d0c8;"><th style="padding:3px 6px;text-align:left;">Offset</th><th style="padding:3px 6px;text-align:left;">Original</th><th style="padding:3px 6px;text-align:left;">Variante</th><th style="padding:3px 6px;">Nb</th></tr>`;
+  v.diffs.slice(0, 80).forEach(d => {
     const o = Array.from(hexBytes.slice(d.start, Math.min(d.end + 1, d.start + 10))).map(x => x.toString(16).toUpperCase().padStart(2, "0")).join(" ");
     const n = Array.from(v.bytes.slice(d.start, Math.min(d.end + 1, d.start + 10))).map(x => x.toString(16).toUpperCase().padStart(2, "0")).join(" ");
-    html += `<tr style="border-bottom:1px solid #eee;background:${idx%2?'#faf9f6':'#fff'};"><td style="padding:3px 6px;color:#888;">0x${d.start.toString(16).toUpperCase().padStart(8,"0")}</td><td style="padding:3px 6px;color:#999;">${o}${d.count > 10 ? ' …' : ''}</td><td style="padding:3px 6px;color:#e08a00;font-weight:700;">${n}${d.count > 10 ? ' …' : ''}</td><td style="padding:3px 6px;text-align:center;font-weight:600;">${d.count}</td></tr>`;
+    html += `<tr style="border-bottom:1px solid #eee;"><td style="padding:2px 6px;color:#888;">0x${d.start.toString(16).toUpperCase().padStart(8,"0")}</td><td style="padding:2px 6px;color:#888;">${o}${d.count > 10 ? ' …' : ''}</td><td style="padding:2px 6px;color:#e08a00;font-weight:700;">${n}${d.count > 10 ? ' …' : ''}</td><td style="padding:2px 6px;text-align:center;">${d.count}</td></tr>`;
   });
-  if(v.diffs.length > 80) html += `<tr><td colspan="4" style="padding:5px;text-align:center;color:#888;">+${v.diffs.length - 80} plages…</td></tr>`;
-  html += `</table></div></div></div>`;
+  if(v.diffs.length > 80) html += `<tr><td colspan="4" style="padding:4px;text-align:center;color:#888;">+${v.diffs.length - 80} plages…</td></tr>`;
+  html += `</table></div></div>`;
   box.innerHTML = html;
   box.classList.remove("hidden");
 }
@@ -4311,31 +4812,6 @@ const PACKER_SIGNATURES=[
   {name:"NsPack", patterns:[".nsp0",".nsp1"]},
   {name:"Petite", patterns:[".petite"]},
   {name:"Enigma", patterns:["Enigma"]},
-  {name:"MoleBox", patterns:[".MPRESS",".molebox","MoleBox"]},
-  {name:"Obsidium", patterns:["Obsidium",".obsidium"]},
-  {name:"tElock", patterns:["tElock",".telock"]},
-  {name:"PELock", patterns:["PELock"]},
-  {name:"ExeStealth", patterns:["ExeStealth"]},
-  {name:"Yoda's Crypter", patterns:["yC","Yoda"]},
-  {name:"kkrunchy", patterns:["kkrunchy"]},
-  {name:"NSIS (installeur)", patterns:["Nullsoft","NSIS"]},
-  {name:"Inno Setup (installeur)", patterns:["Inno Setup","InnoSetup"]},
-];
-
-// Signatures de COMPILATEURS — détectées via chaînes ou motifs caractéristiques (style PEiD)
-const COMPILER_SIGNATURES=[
-  {name:"Microsoft Visual C++", patterns:["Microsoft Visual C++","MSVCR","VCRUNTIME","api-ms-win"]},
-  {name:"Visual Basic 6", patterns:["MSVBVM60.DLL","VB5!"]},
-  {name:"Borland Delphi", patterns:["Borland","Delphi","Embarcadero","SysInit","TObject"]},
-  {name:"Borland C++", patterns:["Borland C++","BORLNDMM.DLL"]},
-  {name:"MinGW / GCC", patterns:["GCC:","mingw","libgcc","__mingw"]},
-  {name:"Go (Golang)", patterns:["Go build ID","golang","runtime.main","go1."]},
-  {name:".NET / C#", patterns:["mscoree.dll","_CorExeMain",".NET Framework","#Strings","#Blob"]},
-  {name:"Rust", patterns:["rustc","rust_begin_unwind","cargo","/rust/"]},
-  {name:"Nim", patterns:["nim_program","NimMain"]},
-  {name:"AutoIt", patterns:["AutoIt","AU3!"]},
-  {name:"PyInstaller (Python)", patterns:["pyinstaller","python3","_MEIPASS","Py_Initialize"]},
-  {name:"Free Pascal", patterns:["Free Pascal","FPC "]},
 ];
 
 // Signatures cryptographiques renforcées — plusieurs empreintes par algorithme
@@ -4395,16 +4871,6 @@ function findByteSequence(haystack, needle){
   return -1;
 }
 
-$("defenseBrowse").addEventListener("click",()=>$("defenseFile").click());
-$("defenseFile").addEventListener("change",async(e)=>{
-  const file=e.target.files[0];
-  if(!file) return;
-  const nameEl=$("defenseFileName");
-  if(nameEl){ nameEl.textContent=file.name; nameEl.style.color="#111"; }
-  const buf=new Uint8Array(await file.arrayBuffer());
-  analyzeDefense(buf, file.name);
-});
-
 function analyzeDefense(bytes, filename){
   $("defenseEmpty").classList.add("hidden");
   const box=$("defenseResult");
@@ -4420,82 +4886,6 @@ function analyzeDefense(bytes, filename){
   PACKER_SIGNATURES.forEach(p=>{ if(p.patterns.some(pat=>ascii.includes(pat))) packersFound.push(p.name); });
   if(packersFound.length>0) alerts.push({level:"high",text:`Packer/protecteur détecté : <b>${packersFound.join(", ")}</b>`});
   else alerts.push({level:"ok",text:"Aucun packer connu détecté par signature"});
-
-  // 1b. Compilateur (style PEiD) — identifier avec quoi le fichier a été créé
-  const compilersFound=[];
-  COMPILER_SIGNATURES.forEach(c=>{ if(c.patterns.some(pat=>ascii.includes(pat))) compilersFound.push(c.name); });
-  if(compilersFound.length>0) alerts.push({level:"info",text:`🛠️ Compilé avec : <b>${compilersFound.join(", ")}</b>`});
-  else if(packersFound.length===0) alerts.push({level:"info",text:"🛠️ Compilateur non identifié (le fichier est peut-être packé, ou compilateur inconnu)"});
-
-  // 1c. ANALYSE DU POINT D'ENTRÉE (EP) — fonction caractéristique de PEiD
-  if(isPE){
-    try{
-      const peOff=readU32LE(bytes,0x3C);
-      if(bytes[peOff]===0x50&&bytes[peOff+1]===0x45){
-        const optOff=peOff+24;
-        const magic=readU16LE(bytes,optOff);
-        const is64=(magic===0x20B);
-        const epRVA=readU32LE(bytes,optOff+16);           // AddressOfEntryPoint
-        const subsystem=readU16LE(bytes,optOff+(is64?68:68));
-        const numSec=readU16LE(bytes,peOff+6);
-        // Convertir l'EP (RVA) en offset fichier + trouver sa section
-        let secOff=optOff+readU16LE(bytes,peOff+20);
-        let epFileOff=-1, epSection="?", epSectionChars=0;
-        const secNames=[];
-        for(let s=0;s<numSec;s++){
-          let nm=""; for(let j=0;j<8;j++){const c=bytes[secOff+j]; if(c>=32&&c<127)nm+=String.fromCharCode(c);}
-          nm=nm.replace(/\0/g,"").trim();
-          const vsize=readU32LE(bytes,secOff+8), va=readU32LE(bytes,secOff+12);
-          const rawOff=readU32LE(bytes,secOff+20), chars=readU32LE(bytes,secOff+36);
-          secNames.push(nm);
-          if(epRVA>=va && epRVA<va+Math.max(vsize,1)){ epFileOff=rawOff+(epRVA-va); epSection=nm; epSectionChars=chars; }
-          secOff+=40;
-        }
-        // Infos PE façon PEiD
-        const subName={1:"Native",2:"GUI Windows",3:"Console",5:"OS/2",7:"POSIX",9:"Windows CE"}[subsystem]||`#${subsystem}`;
-        alerts.push({level:"info",text:`📍 Point d'entrée : RVA <b>0x${epRVA.toString(16).toUpperCase()}</b>${epFileOff>=0?` (offset fichier 0x${epFileOff.toString(16).toUpperCase()})`:""} · section <b>${epSection}</b>`});
-        alerts.push({level:"info",text:`🧩 Type : <b>${is64?"PE32+ (64 bits)":"PE32 (32 bits)"}</b> · sous-système : <b>${subName}</b> · ${numSec} sections (${secNames.join(", ")})`});
-
-        // Lire les octets à l'EP (comme PEiD) et les comparer aux signatures
-        if(epFileOff>=0 && epFileOff+16<=bytes.length){
-          const epBytes=Array.from(bytes.slice(epFileOff,epFileOff+16));
-          const epHex=epBytes.map(x=>x.toString(16).toUpperCase().padStart(2,"0")).join(" ");
-          alerts.push({level:"info",text:`🔹 Octets au point d'entrée : <span style="font-family:monospace;">${epHex}</span>`});
-
-          // Signatures d'octets connues au point d'entrée
-          const EP_SIGS=[
-            {name:"UPX", sig:[0x60,0xBE], mask:[1,1]},                 // pushad; mov esi,...
-            {name:"UPX (variante)", sig:[0x60,0xE8], mask:[1,1]},
-            {name:"ASPack", sig:[0x60,0xE8,0x03], mask:[1,1,1]},
-            {name:"FSG", sig:[0x87,0x25], mask:[1,1]},
-            {name:"PECompact", sig:[0xB8], mask:[1]},                  // mov eax, imm32 au tout début
-            {name:"Petite", sig:[0xB8,0x00,0x00], mask:[1,0,0]},
-            {name:"Visual C++ (typique)", sig:[0xE8], mask:[1]},       // call (souvent au début du CRT)
-            {name:"Visual Basic", sig:[0x68], mask:[1]},               // push (VB main)
-            {name:"MSVC /GS", sig:[0x55,0x8B,0xEC], mask:[1,1,1]},     // push ebp; mov ebp,esp (prologue standard)
-          ];
-          const epMatches=[];
-          EP_SIGS.forEach(s=>{
-            let ok=true;
-            for(let i=0;i<s.sig.length;i++){ if(s.mask[i]&&epBytes[i]!==s.sig[i]){ ok=false; break; } }
-            if(ok) epMatches.push(s.name);
-          });
-          if(epMatches.length>0) alerts.push({level:"info",text:`🎯 Motif au point d'entrée compatible avec : <b>${epMatches.join(", ")}</b>`});
-
-          // 1d. HEURISTIQUE : détecter un packing probable
-          const epExec=!!(epSectionChars&0x20000000);
-          const epWritable=!!(epSectionChars&0x80000000);
-          const stdSections=[".text",".code","CODE"];
-          if(!stdSections.includes(epSection) && epSection!=="?" && packersFound.length===0){
-            alerts.push({level:"med",text:`⚠️ Heuristique : le point d'entrée est dans la section <b>${epSection}</b> (pas .text) — signe possible de packing`});
-          }
-          if(epWritable && epExec){
-            alerts.push({level:"med",text:`⚠️ Heuristique : la section du point d'entrée est à la fois inscriptible ET exécutable (RWX) — comportement typique d'un packer/déchiffreur`});
-          }
-        }
-      }
-    }catch(e){}
-  }
 
   // 2. Détection de cryptographie (constantes + opcodes + imports)
   const cryptoByAlgo={}; // algo -> [{type, offset}]
@@ -4675,17 +5065,16 @@ function analyzeDefense(bytes, filename){
 
   html+=`<div style="margin-bottom:12px;">`;
   alerts.forEach(a=>{
-    const color=a.level==="high"?"#dc3545":a.level==="med"?"#e0a800":a.level==="info"?"#3a7bc0":"#28a745";
-    const icon=a.level==="high"?"🔴":a.level==="med"?"🟡":a.level==="info"?"🛠️":"✅";
-    const shownIcon=(a.level==="info"&&a.text.includes("🛠️"))?"":icon+" ";
-    html+=`<div style="padding:6px 8px;margin-bottom:4px;border-left:3px solid ${color};background:#fafafa;font-size:12px;">${shownIcon}${a.text}</div>`;
+    const color=a.level==="high"?"#dc3545":a.level==="med"?"#e0a800":"#28a745";
+    const icon=a.level==="high"?"🔴":a.level==="med"?"🟡":"✅";
+    html+=`<div style="padding:6px 8px;margin-bottom:4px;border-left:3px solid ${color};background:#fafafa;font-size:12px;">${icon} ${a.text}</div>`;
   });
   html+=`</div>`;
 
   if(sections.length>0){
     html+=`<div style="font-weight:600;color:var(--panel-blue);margin-bottom:6px;font-size:12px;">Sections (${sections.length})</div>`;
     html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px;">`;
-    html+=`<tr style="background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:#0d3b8c;"><th style="padding:5px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">Perms</th><th style="padding:4px 6px;">Taille</th></tr>`;
+    html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">Perms</th><th style="padding:4px 6px;">Taille</th></tr>`;
     sections.forEach(s=>{
       const entColor=s.ent>7.0?"#c00":s.ent>6.5?"#e0a800":"#0a7";
       const perms=(s.read?"R":"-")+(s.write?"W":"-")+(s.exec?"X":"-");
