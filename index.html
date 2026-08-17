@@ -4961,6 +4961,20 @@ function findByteSequence(haystack, needle){
   return -1;
 }
 
+$("defenseBrowse").addEventListener("click",()=>$("defenseFile").click());
+$("defenseFile").addEventListener("change",()=>{
+  const f=$("defenseFile").files[0]; if(!f) return;
+  $("defenseFileName").textContent=f.name;
+  $("defenseFileName").style.color="#333";
+  const r=new FileReader();
+  r.onload=e=>{
+    try{ analyzeDefense(new Uint8Array(e.target.result), f.name); }
+    catch(err){ console.warn('defense:',err); alert("Analyse impossible : "+(err&&err.message?err.message:err)); }
+  };
+  r.onerror=()=>alert("Lecture du fichier impossible.");
+  r.readAsArrayBuffer(f);
+});
+
 function analyzeDefense(bytes, filename){
   $("defenseEmpty").classList.add("hidden");
   const box=$("defenseResult");
