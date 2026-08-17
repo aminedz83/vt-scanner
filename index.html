@@ -1218,6 +1218,54 @@ function detectOverlay(b,secs){
   if(mx>0 && b.length>mx+16) return {offset:mx,size:b.length-mx};
   return null;
 }
+// Lecture côté ANALYSE : qu'est-ce qu'un analyste regarde face à un overlay.
+// Type de données (signature, archive, PE ajouté…), entropie, part du fichier, interprétation.
+function renderOverlayAnalysis(b,ov,ddb){
+  const esc=(x)=>String(x);
+  const hex=(n)=>"0x"+n.toString(16).toUpperCase();
+  const pct=(ov.size/b.length*100);
+  // Entropie sur un échantillon (jusqu'à 1 Mio) pour rester rapide sur gros overlays.
+  const sampleEnd=Math.min(ov.offset+(1<<20), b.length);
+  const ent=hexEntropy(b.slice(ov.offset,sampleEnd));
+  const sampled=(sampleEnd-ov.offset)<ov.size;
+  // Est-ce la signature Authenticode ? (répertoire de sécurité)
+  let isSig=false;
+  if(typeof ddb==='number'){
+    const sOff=readU32LE(b,ddb+32), sSz=readU32LE(b,ddb+36);
+    if(sOff && sOff>=ov.offset && sOff<ov.offset+ov.size) isSig=true;
+  }
+  // Reconnaissance de type par octets de tête.
+  const o=ov.offset, at=(i)=>b[o+i];
+  const ascii=(i,n)=>{let s='';for(let k=0;k<n;k++)s+=String.fromCharCode(b[o+i+k]||0);return s;};
+  let kind=null;
+  if(isSig || (at(4)===0x00&&at(5)===0x02&&at(6)===0x02&&at(7)===0x00)) kind={label:"Signature Authenticode (certificat)",tone:"ok",note:"Zone normale et attendue sur un fichier signé — c'est là que vit le certificat."};
+  else if(ascii(0,2)==="PK"&&at(2)===0x03&&at(3)===0x04) kind={label:"Archive ZIP (PK\\x03\\x04)",tone:"info",note:"Fréquent sur les auto-extractibles, JAR/APK, ou installeurs."};
+  else if(ascii(0,4)==="MSCF") kind={label:"Archive CAB (MSCF)",tone:"info",note:"Cabinet Windows — typique d'installeurs."};
+  else if(ascii(0,4)==="Rar!") kind={label:"Archive RAR",tone:"info",note:"Souvent un auto-extractible."};
+  else if(at(0)===0x37&&at(1)===0x7A&&at(2)===0xBC&&at(3)===0xAF) kind={label:"Archive 7-Zip",tone:"info",note:"Souvent un auto-extractible."};
+  else if(ascii(0,2)==="MZ") kind={label:"Exécutable PE ajouté (MZ)",tone:"warn",note:"Un second binaire est accolé — courant sur droppers/bundlers, mais aussi sur des outils légitimes."};
+  else if(ascii(0,7)==="!<arch>") kind={label:"Archive ar",tone:"info",note:null};
+  else kind={label:"Données non identifiées",tone:"warn",note:"Type inconnu — le contenu réel demande une inspection en hex."};
+  // Interprétation de l'entropie.
+  let entTxt,entTone;
+  if(ent>=7.5){entTxt="très élevée — données compressées ou chiffrées";entTone="warn";}
+  else if(ent>=6.5){entTxt="élevée — probablement compressé/structuré";entTone="warn";}
+  else if(ent>=4.5){entTxt="moyenne — données mixtes";entTone="info";}
+  else {entTxt="faible — texte ou données répétitives";entTone="ok";}
+  const col={ok:"#1a7a3a",info:"#0a5aa0",warn:"#a86500"};
+  const chip=(t,tone)=>`<span style="display:inline-block;background:#fff;border:1px solid ${col[tone]};color:${col[tone]};border-radius:10px;padding:1px 8px;font-weight:600;">${t}</span>`;
+  return `
+    <div style="line-height:1.6;">
+      <div style="font-weight:600;margin-bottom:4px;">Données après la fin du PE (overlay)</div>
+      <div>Début : <b>${hex(ov.offset)}</b> · Taille : <b>${ov.size.toLocaleString('fr-FR')}</b> octets (${(ov.size/1024).toFixed(1)} Ko) · <b>${pct.toFixed(1)} %</b> du fichier</div>
+      <div style="margin-top:4px;">Type : ${chip(kind.label,kind.tone)}</div>
+      <div style="margin-top:4px;">Entropie : ${chip(ent.toFixed(2)+"/8.0",entTone)} <span style="color:#555;">${entTxt}${sampled?" (éch. 1 Mio)":""}</span></div>
+      ${kind.note?`<div style="margin-top:5px;color:#555;font-size:11px;">ℹ️ ${kind.note}</div>`:""}
+      <div style="margin-top:6px;color:#666;font-size:11px;border-top:1px dashed #e0c98a;padding-top:5px;">
+        Ce qu'un analyste vérifie : l'écart entre la fin déclarée des sections et la taille réelle du fichier (= cet overlay), le type de données en tête de zone, et son entropie. Une entropie très élevée sur une grande zone signale des données compressées/chiffrées ajoutées après coup.
+      </div>
+    </div>`;
+}
 function removeSignature(b,ddb){
   const o=ddb+32;
   const fileOff=readU32LE(b,o),sz=readU32LE(b,o+4);
@@ -1430,10 +1478,10 @@ function parsePE(){
   try{
     const ov=detectOverlay(b,peSectionsList);
     if(ov){
-      $("peOverlayInfo").innerHTML=`Données supplémentaires détectées après le PE — Offset: 0x${ov.offset.toString(16).toUpperCase()} — Taille: ${ov.size} octets (${(ov.size/1024).toFixed(1)} Ko)`;
+      $("peOverlayInfo").innerHTML=renderOverlayAnalysis(b,ov,peDataDirBase);
       $("peOverlayBox").classList.remove("hidden");
     } else $("peOverlayBox").classList.add("hidden");
-  }catch(e){}
+  }catch(e){ console.warn('overlay:',e); }
 
   $("peEditorBox").classList.remove("hidden");
 }
