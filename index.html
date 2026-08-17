@@ -122,6 +122,11 @@
   .pe-field input,.pe-field select{width:100%;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:13px;}
   .pe-sections{font-size:12px;font-family:monospace;}
   .pe-sections div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #ccc;}
+  .secent-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-family:monospace;font-size:11.5px;}
+  .secent-name{width:70px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .secent-bar{flex:1;height:12px;background:#eef2f7;border:1px solid #d5dced;border-radius:6px;overflow:hidden;}
+  .secent-fill{height:100%;border-radius:6px 0 0 6px;transition:width .2s;}
+  .secent-val{width:96px;flex:none;text-align:right;}
   /* Historique */
   .hist-table{width:100%;border-collapse:collapse;font-size:12px;}
   .hist-table th{background:#d4d0c8;padding:5px 8px;text-align:left;border:1px solid var(--win-border);}
@@ -301,6 +306,7 @@
       <fieldset>
         <legend>Sections</legend>
         <div class="pe-sections" id="peSectionsView"></div>
+        <div id="peSectionEntropy" style="margin-top:10px;"></div>
       </fieldset>
 
       <fieldset>
@@ -1400,6 +1406,7 @@ function parsePE(){
   for(const s of peSectionsList)
     secHtml+=`<div><span>${s.name}</span><span>0x${s.vsize.toString(16).toUpperCase()}</span><span>0x${s.va.toString(16).toUpperCase()}</span><span>0x${s.chars.toString(16).toUpperCase()}</span></div>`;
   $("peSectionsView").innerHTML=secHtml;
+  try{ renderSectionEntropy(b,peSectionsList); }catch(e){ console.warn('secentropy:',e); }
 
   const entryRVA=readU32LE(b,OPT+16);
   const imageBase=peIsPE64?'(64-bit)':('0x'+readU32LE(b,OPT+28).toString(16).toUpperCase());
@@ -2612,6 +2619,41 @@ function hexEntropy(bytes){
   let h=0;
   for(const f of freq){if(f>0){const p=f/bytes.length;h-=p*Math.log2(p);}}
   return h;
+}
+
+// Carte d'entropie par section (côté ANALYSE) : repère d'un coup d'œil une section packée.
+function sectionEntropyColor(e){
+  if(e>=7.2) return "#e2453a";   // rouge : très haute → compressé/chiffré
+  if(e>=6.5) return "#e8730f";   // orange
+  if(e>=5.0) return "#f0a020";   // ambre
+  return "#3aa84f";              // vert : normal
+}
+function renderSectionEntropy(b,secs){
+  const box=$("peSectionEntropy"); if(!box) return;
+  if(!secs||!secs.length){ box.innerHTML=""; return; }
+  let rows="",packed=0;
+  for(const s of secs){
+    const nm=(s.name||"(?)");
+    if(!s.rawSize){
+      rows+=`<div class="secent-row"><span class="secent-name" title="${nm}">${nm}</span><div class="secent-bar"></div><span class="secent-val" style="color:#999;">vide/disque</span></div>`;
+      continue;
+    }
+    const end=Math.min(s.rawOffset+Math.min(s.rawSize,1<<20), b.length);
+    const ent=hexEntropy(b.slice(s.rawOffset,end));
+    const col=sectionEntropyColor(ent);
+    const isPacked=ent>=7.2; if(isPacked) packed++;
+    const w=Math.max(2,Math.min(100,ent/8*100));
+    rows+=`<div class="secent-row">
+      <span class="secent-name" title="${nm}">${nm}</span>
+      <div class="secent-bar"><div class="secent-fill" style="width:${w}%;background:${col};"></div></div>
+      <span class="secent-val" style="color:${col};font-weight:600;">${ent.toFixed(2)}/8${isPacked?" ⚑":""}</span>
+    </div>`;
+  }
+  const legend=`<div style="font-size:11px;color:#666;margin-top:7px;line-height:1.55;border-top:1px dashed #d5dced;padding-top:6px;">
+    Entropie des octets bruts, section par section. Proche de <b>8/8</b> = données compressées ou chiffrées : une section de <b>code</b> (ex. <code>.text</code>) à très haute entropie est un signe classique de <b>packer</b> (UPX &amp; co.). ⚑ = ≥ 7.2.
+    ${packed?`<br><span style="color:#a83232;font-weight:600;">${packed} section(s) à haute entropie — empaquetage probable.</span>`:`<br><span style="color:#1a7a3a;">Profil d'entropie normal.</span>`}
+  </div>`;
+  box.innerHTML=`<div style="font-size:12px;font-weight:600;color:var(--panel-blue);margin-bottom:6px;">🗺️ Entropie par section</div>${rows}${legend}`;
 }
 
 function updateHexSelInfo(){
