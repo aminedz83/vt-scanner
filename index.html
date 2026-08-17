@@ -5108,7 +5108,49 @@ function analyzeDefense(bytes, filename){
   const highCount=alerts.filter(a=>a.level==="high").length;
   const medCount=alerts.filter(a=>a.level==="med").length;
 
-  let html=`<div style="margin-bottom:12px;padding:10px;border-radius:6px;background:${highCount>0?'#f8d7da':medCount>0?'#fff3cd':'#d4edda'};border:1px solid ${highCount>0?'#dc3545':medCount>0?'#ffc107':'#28a745'};">
+  // ── Score de suspicion : agrégation pondérée des signaux read-only ci-dessus ──
+  const suspicion=[]; let score=0;
+  const addS=(pts,label)=>{ score+=pts; suspicion.push({pts,label}); };
+  if(packersFound.length>0) addS(35,`Packer connu (${packersFound.join(", ")})`);
+  if(algoKeys.length>0) addS(Math.min(20,algoKeys.length*8),`Constantes crypto (${algoKeys.length})`);
+  if(cryptoLibs.length>0) addS(5,`Import crypto`);
+  const hEntSecs=sections.filter(s=>s.ent>7.0);
+  if(hEntSecs.length>0) addS(Math.min(30,hEntSecs.length*12),`Section(s) haute entropie (${hEntSecs.map(s=>s.name).join(", ")})`);
+  const rwxS=sections.filter(s=>s.exec&&s.write);
+  if(rwxS.length>0) addS(15,`Section RWX (${rwxS.map(s=>s.name).join(", ")})`);
+  if(isPE && epSection!=="?" && epSection!==".text" && epSection!=="CODE") addS(10,`Point d'entrée hors .text (${epSection})`);
+  if(maxNop>=32||maxInt3>=32) addS(8,`Junk code (NOP/INT3)`);
+  if(stratTraces.length>0) addS(Math.min(30,stratTraces.length*12),`Trace(s) de modification d'octets`);
+  if(sections.length>0 && sections.length<=3 && globalEnt>7) addS(15,`Profil packé (peu de sections + entropie ${globalEnt.toFixed(1)})`);
+  if(sections.length>0){
+    let mx=0; sections.forEach(s=>{ if(s.rawOff>0&&s.rawSize>0) mx=Math.max(mx,s.rawOff+s.rawSize); });
+    if(mx>0 && bytes.length>mx+16){
+      const ovEnt=hexEntropy(bytes.slice(mx,Math.min(mx+(1<<20),bytes.length)));
+      if(ovEnt>=7.2) addS(10,`Overlay à haute entropie (${ovEnt.toFixed(2)}/8)`);
+    }
+  }
+  score=Math.max(0,Math.min(100,score));
+  let band,bcol;
+  if(score>=70){band="très élevé";bcol="#dc3545";}
+  else if(score>=45){band="élevé";bcol="#e8730f";}
+  else if(score>=20){band="modéré";bcol="#e0a800";}
+  else{band="faible";bcol="#28a745";}
+  suspicion.sort((a,b)=>b.pts-a.pts);
+  const gauge=`<div style="margin-bottom:12px;padding:12px;border-radius:8px;background:#fff;border:2px solid ${bcol};">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+      <span style="font-weight:700;color:${bcol};font-size:14px;">Score de suspicion : ${score}/100</span>
+      <span style="font-weight:600;color:${bcol};font-size:11px;text-transform:uppercase;letter-spacing:.5px;">${band}</span>
+    </div>
+    <div style="height:14px;background:#eef2f7;border:1px solid #d5dced;border-radius:7px;overflow:hidden;">
+      <div style="height:100%;width:${score}%;background:${bcol};border-radius:7px 0 0 7px;transition:width .3s;"></div>
+    </div>
+    ${suspicion.length?`<div style="margin-top:8px;font-size:11.5px;color:#444;">Facteurs : ${suspicion.map(s=>`<span style="display:inline-block;background:#f3f4f7;border:1px solid #dfe3ea;border-radius:9px;padding:1px 7px;margin:3px 3px 0 0;">${s.label} <b>+${s.pts}</b></span>`).join("")}</div>`:`<div style="margin-top:8px;font-size:11.5px;color:#1a7a35;">Aucun signal de suspicion relevé.</div>`}
+    <div style="margin-top:8px;font-size:10.5px;color:#888;line-height:1.5;border-top:1px dashed #e0e0e0;padding-top:6px;">
+      ⚠️ Un score élevé ne signifie <b>pas</b> « malveillant ». Packing, chiffrement et compression sont courants dans des logiciels légitimes (installeurs, protections commerciales, DRM). Ce score veut dire « à examiner de plus près », pas une accusation — c'est un agrégat des signaux read-only détaillés ci-dessous.
+    </div>
+  </div>`;
+
+  let html=gauge+`<div style="margin-bottom:12px;padding:10px;border-radius:6px;background:${highCount>0?'#f8d7da':medCount>0?'#fff3cd':'#d4edda'};border:1px solid ${highCount>0?'#dc3545':medCount>0?'#ffc107':'#28a745'};">
     <b style="font-size:13px;">${filename}</b><br>
     <span style="font-size:12px;">Résumé : ${highCount>0?`🔴 ${highCount} alerte(s) forte(s)`:''} ${medCount>0?`🟡 ${medCount} point(s) d'attention`:''} ${highCount===0&&medCount===0?'✅ Rien de notable':''}</span><br>
     <span style="font-size:11px;color:#666;">Entropie globale : ${globalEnt.toFixed(2)}/8 · Taille : ${(bytes.length/1024).toFixed(1)} Ko</span>
