@@ -119,25 +119,25 @@
   /* PE */
   .pe-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .pe-field label{display:block;font-size:12px;color:#555;margin-bottom:3px;}
-  .pe-field input,.pe-field select{width:100%;padding:6px;border:1px solid var(--win-border);border-radius:3px;font-size:13px;}
+  .pe-field input,.pe-field select{width:100%;padding:7px;border:1px solid #b0aca2;border-top-color:#8a867c;border-radius:5px;font-size:13px;box-shadow:0 1px 2px rgba(0,0,0,.06) inset;}
   .pe-sections{font-size:12px;font-family:monospace;}
   .pe-sections div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #ccc;}
   /* Historique */
   .hist-table{width:100%;border-collapse:collapse;font-size:12px;}
-  .hist-table th{background:#d4d0c8;padding:5px 8px;text-align:left;border:1px solid var(--win-border);}
-  .hist-table td{padding:5px 8px;border:1px solid #ddd;vertical-align:middle;}
+  .hist-table th{background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:var(--panel-blue);padding:6px 8px;text-align:left;border:1px solid #c8ccd8;font-weight:700;}
+  .hist-table td{padding:6px 8px;border:1px solid #e5e2da;vertical-align:middle;}
   .hist-table tr:nth-child(even){background:#f5f3ee;}
   .hist-table .actions{display:flex;gap:4px;}
   .hist-table button{padding:3px 8px;font-size:11px;}
   .hash-short{font-family:monospace;font-size:11px;}
   /* Diff */
   .diff-table{width:100%;border-collapse:collapse;font-size:12px;font-family:monospace;}
-  .diff-table th{background:#d4d0c8;padding:5px 8px;text-align:left;border:1px solid var(--win-border);}
-  .diff-table td{padding:4px 8px;border:1px solid #ddd;}
+  .diff-table th{background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:var(--panel-blue);padding:6px 8px;text-align:left;border:1px solid #c8ccd8;font-weight:700;}
+  .diff-table td{padding:5px 8px;border:1px solid #e5e2da;}
   .diff-old{color:var(--red);font-weight:700;}
   .diff-new{color:var(--green);font-weight:700;}
   /* Journal */
-  .journal{background:#fff;border:1px solid var(--win-border);border-radius:3px;height:100px;overflow-y:auto;padding:8px;font-size:12px;font-family:"Consolas","Menlo",monospace;color:#222;}
+  .journal{background:linear-gradient(180deg,#fdfdfb,#f6f4ee);border:1px solid #c5c1b7;border-top-color:#fff;border-radius:8px;box-shadow:inset 0 1px 3px rgba(0,0,0,.04);height:100px;overflow-y:auto;padding:8px;font-size:12px;font-family:"Consolas","Menlo",monospace;color:#222;}
   .journal div{margin-bottom:2px;}
   .statusbar{display:flex;justify-content:space-between;padding:6px 12px;font-size:12px;background:#e6e6e6;border-top:1px solid #b8b8b8;}
   .link{color:var(--panel-blue);text-decoration:underline;cursor:pointer;font-size:13px;}
@@ -145,7 +145,7 @@
   .malicious{color:var(--red);font-weight:700;}
   .clean{color:var(--green);font-weight:700;}
   .dl-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:linear-gradient(180deg,#f5fff5,#dcf0dc);border:1px solid #7ab07a;border-radius:20px;cursor:pointer;font-size:12.5px;font-weight:500;margin-top:8px;color:#1a6a30;}
-  .import-list{font-size:11px;font-family:monospace;background:#fff;border:1px solid var(--win-border);border-radius:3px;max-height:200px;overflow-y:auto;padding:6px;}
+  .import-list{font-size:11px;font-family:monospace;background:#fff;border:1px solid #c5c1b7;border-top-color:#fff;border-radius:8px;max-height:200px;overflow-y:auto;padding:6px;}
   .import-dll{font-weight:700;color:var(--panel-blue);padding:2px 0;}
   .import-fn{color:#555;padding-left:14px;padding-top:1px;}
   .pe-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
@@ -730,12 +730,12 @@
       <div id="diffEmpty" class="empty-msg">Charge et modifie un fichier depuis l'éditeur PE ou Hex,<br>puis exporte-le pour voir la comparaison ici.</div>
       <div id="diffContent" class="hidden">
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">
-          <div style="flex:1;background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
-            <div style="font-size:11px;color:#888;margin-bottom:4px;">SHA-256 ORIGINAL</div>
+          <div style="flex:1;min-width:0;background:linear-gradient(180deg,#fff,#fdf6f6);border:1px solid #f0d0d0;border-radius:8px;padding:10px;box-shadow:0 1px 2px rgba(0,0,0,.05);">
+            <div style="font-size:10px;color:#c00;margin-bottom:4px;font-weight:700;letter-spacing:.02em;">🔑 SHA-256 ORIGINAL</div>
             <div id="diffHashOrig" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--red);"></div>
           </div>
-          <div style="flex:1;background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
-            <div style="font-size:11px;color:#888;margin-bottom:4px;">SHA-256 MODIFIÉ</div>
+          <div style="flex:1;min-width:0;background:linear-gradient(180deg,#fff,#f6fdf8);border:1px solid #c5e5c5;border-radius:8px;padding:10px;box-shadow:0 1px 2px rgba(0,0,0,.05);">
+            <div style="font-size:10px;color:#0a7;margin-bottom:4px;font-weight:700;letter-spacing:.02em;">🔑 SHA-256 MODIFIÉ</div>
             <div id="diffHashNew" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--green);"></div>
           </div>
         </div>
@@ -2975,9 +2975,9 @@ function renderHexVariants(){
           <input value="${(v.note || '').replace(/"/g, '&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Ajouter une note…" style="width:100%;font-size:11px;padding:6px 8px;box-sizing:border-box;">
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button onclick="showHexDiff(${i})" style="font-size:11px;flex:1;min-width:70px;">🔍 Comparer</button>
-          <button onclick="redownloadHexVariant(${i})" style="font-size:11px;flex:1;min-width:70px;">⬇️ Télécharger</button>
-          <button onclick="scanHexVariant(${i})" style="font-size:11px;flex:1;min-width:70px;">🛡️ Scanner</button>
+          <button onclick="showHexDiff(${i})" style="font-size:10.5px;flex:1;min-width:64px;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🔍 Comparer</button>
+          <button onclick="redownloadHexVariant(${i})" style="font-size:10.5px;flex:1;min-width:64px;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">⬇️ Télécharger</button>
+          <button onclick="scanHexVariant(${i})" style="font-size:10.5px;flex:1;min-width:64px;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🛡️ Scanner</button>
         </div>
         <button onclick="deleteHexVariant(${i})" style="width:100%;margin-top:6px;font-size:11px;background:linear-gradient(180deg,#fff0f0,#ffe0e0);border:1px solid #e0a0a0;color:#c00;">🗑️ Supprimer</button>
       </div>
@@ -3014,28 +3014,29 @@ function showHexDiff(i){
   const v = hexVariants[i];
   const box = $("hexDiffView");
   const totalMod = v.diffs.reduce((s, d) => s + d.count, 0);
-  let html = `<div style="background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
-    <div style="font-weight:600;color:var(--panel-blue);margin-bottom:6px;">🔍 Comparaison — Original vs ${v.name}</div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;font-family:monospace;font-size:11px;">
-      <div><span style="color:#888;">Original :</span> <span style="color:#cc1414;">${v.origHash.substring(0,24)}…</span></div>
-      <div><span style="color:#888;">Modifié :</span> <span style="color:#1a9b3a;">${v.hash.substring(0,24)}…</span></div>
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:11px;">
-      <span>Octets modifiés : <b>${totalMod}</b></span>
-      <span>Plages : <b>${v.diffs.length}</b></span>
-      <span>PE : <b>${v.pe ? '✅ valide' : '❌ invalide'}</b></span>
-      <span>Entropie : <b style="color:#0a7;">${v.entropy}</b></span>
-    </div>
-    <div style="max-height:180px;overflow-y:auto;">
-    <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;">
-      <tr style="background:#d4d0c8;"><th style="padding:3px 6px;text-align:left;">Offset</th><th style="padding:3px 6px;text-align:left;">Original</th><th style="padding:3px 6px;text-align:left;">Variante</th><th style="padding:3px 6px;">Nb</th></tr>`;
-  v.diffs.slice(0, 80).forEach(d => {
+  let html = `<div style="background:#fff;border:1px solid #c5c1b7;border-top-color:#fff;border-left-color:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+    <div style="padding:9px 11px;background:linear-gradient(180deg,#eef1f8,#e2e6f0);border-bottom:1px solid #c8ccd8;font-weight:700;color:var(--panel-blue);font-size:13px;">🔍 Comparaison — Original vs ${v.name}</div>
+    <div style="padding:10px 11px;">
+      <div style="display:flex;flex-direction:column;gap:5px;font-size:11px;margin-bottom:9px;">
+        <div style="display:flex;align-items:center;gap:6px;"><span style="width:16px;">🔑</span><span style="color:#888;min-width:64px;">Original</span> <span style="color:#cc1414;font-family:monospace;font-size:10px;">${v.origHash.substring(0,24)}…</span></div>
+        <div style="display:flex;align-items:center;gap:6px;"><span style="width:16px;">🔑</span><span style="color:#888;min-width:64px;">Modifié</span> <span style="color:#1a9b3a;font-family:monospace;font-size:10px;">${v.hash.substring(0,24)}…</span></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#eef1f8;border:1px solid #c8ccd8;color:#333;">🔢 ${totalMod} octets</span>
+        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#eef1f8;border:1px solid #c8ccd8;color:#333;">📍 ${v.diffs.length} plage${v.diffs.length>1?'s':''}</span>
+        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:${v.pe?'#e0f5e0':'#ffe0e0'};border:1px solid ${v.pe?'#a5d5a5':'#f0b0b0'};color:${v.pe?'#0a7':'#c00'};">${v.pe ? '✅ PE valide' : '❌ PE invalide'}</span>
+        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#eef1f8;border:1px solid #c8ccd8;color:#0a7;">📊 ${v.entropy}/8</span>
+      </div>
+      <div style="max-height:180px;overflow:auto;border:1px solid #e0ddd4;border-radius:6px;">
+      <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;">
+        <tr style="background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:var(--panel-blue);"><th style="padding:5px 6px;text-align:left;position:sticky;top:0;background:#e0e4ee;">Offset</th><th style="padding:5px 6px;text-align:left;position:sticky;top:0;background:#e0e4ee;">Original</th><th style="padding:5px 6px;text-align:left;position:sticky;top:0;background:#e0e4ee;">Variante</th><th style="padding:5px 6px;position:sticky;top:0;background:#e0e4ee;">Nb</th></tr>`;
+  v.diffs.slice(0, 80).forEach((d,idx) => {
     const o = Array.from(hexBytes.slice(d.start, Math.min(d.end + 1, d.start + 10))).map(x => x.toString(16).toUpperCase().padStart(2, "0")).join(" ");
     const n = Array.from(v.bytes.slice(d.start, Math.min(d.end + 1, d.start + 10))).map(x => x.toString(16).toUpperCase().padStart(2, "0")).join(" ");
-    html += `<tr style="border-bottom:1px solid #eee;"><td style="padding:2px 6px;color:#888;">0x${d.start.toString(16).toUpperCase().padStart(8,"0")}</td><td style="padding:2px 6px;color:#888;">${o}${d.count > 10 ? ' …' : ''}</td><td style="padding:2px 6px;color:#e08a00;font-weight:700;">${n}${d.count > 10 ? ' …' : ''}</td><td style="padding:2px 6px;text-align:center;">${d.count}</td></tr>`;
+    html += `<tr style="border-bottom:1px solid #eee;background:${idx%2?'#faf9f6':'#fff'};"><td style="padding:3px 6px;color:#888;">0x${d.start.toString(16).toUpperCase().padStart(8,"0")}</td><td style="padding:3px 6px;color:#999;">${o}${d.count > 10 ? ' …' : ''}</td><td style="padding:3px 6px;color:#e08a00;font-weight:700;">${n}${d.count > 10 ? ' …' : ''}</td><td style="padding:3px 6px;text-align:center;font-weight:600;">${d.count}</td></tr>`;
   });
-  if(v.diffs.length > 80) html += `<tr><td colspan="4" style="padding:4px;text-align:center;color:#888;">+${v.diffs.length - 80} plages…</td></tr>`;
-  html += `</table></div></div>`;
+  if(v.diffs.length > 80) html += `<tr><td colspan="4" style="padding:5px;text-align:center;color:#888;">+${v.diffs.length - 80} plages…</td></tr>`;
+  html += `</table></div></div></div>`;
   box.innerHTML = html;
   box.classList.remove("hidden");
 }
@@ -4684,7 +4685,7 @@ function analyzeDefense(bytes, filename){
   if(sections.length>0){
     html+=`<div style="font-weight:600;color:var(--panel-blue);margin-bottom:6px;font-size:12px;">Sections (${sections.length})</div>`;
     html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px;">`;
-    html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">Perms</th><th style="padding:4px 6px;">Taille</th></tr>`;
+    html+=`<tr style="background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:#0d3b8c;"><th style="padding:5px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">Perms</th><th style="padding:4px 6px;">Taille</th></tr>`;
     sections.forEach(s=>{
       const entColor=s.ent>7.0?"#c00":s.ent>6.5?"#e0a800":"#0a7";
       const perms=(s.read?"R":"-")+(s.write?"W":"-")+(s.exec?"X":"-");
