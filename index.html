@@ -4975,12 +4975,80 @@ $("defenseFile").addEventListener("change",()=>{
   r.readAsArrayBuffer(f);
 });
 
+// ── Détection d'API importées par catégorie (côté ANALYSE) ──
+// API légitimes prises isolément ; c'est leur regroupement qui oriente l'analyse.
+const API_CATEGORIES=[
+ {key:"injection",label:"Injection de code",weight:22,desc:"écriture/exécution dans un autre processus",
+  apis:["virtualallocex","virtualprotectex","writeprocessmemory","readprocessmemory","createremotethread","createremotethreadex","ntcreatethreadex","rtlcreateuserthread","queueuserapc","ntqueueapcthread","setthreadcontext","getthreadcontext","ntunmapviewofsection","zwunmapviewofsection","ntmapviewofsection","setwindowshookex","ntwritevirtualmemory","ntallocatevirtualmemory","ntprotectvirtualmemory"]},
+ {key:"process",label:"Manipulation de processus",weight:8,desc:"ouverture/énumération de processus",
+  apis:["openprocess","createtoolhelp32snapshot","process32first","process32next","ntopenprocess","createprocessinternal"]},
+ {key:"antidbg",label:"Anti-analyse / anti-debug",weight:14,desc:"détection de debugger ou de sandbox",
+  apis:["isdebuggerpresent","checkremotedebuggerpresent","ntqueryinformationprocess","outputdebugstring","ntsetinformationthread","blockinput","findwindow","getthreadcontext"]},
+ {key:"dynexec",label:"Chargement dynamique",weight:4,desc:"résolution d'API à l'exécution (très courant)",
+  apis:["loadlibrary","loadlibraryex","getprocaddress","ldrloaddll","ldrgetprocedureaddress"]},
+ {key:"network",label:"Réseau",weight:8,desc:"communication réseau ou téléchargement",
+  apis:["wsastartup","socket","connect","send","recv","internetopen","internetopenurl","internetconnect","internetreadfile","httpopenrequest","httpsendrequest","winhttpopen","winhttpconnect","winhttpsendrequest","urldownloadtofile","dnsquery","gethostbyname"]},
+ {key:"persist",label:"Persistance / registre",weight:10,desc:"écriture registre ou services",
+  apis:["regcreatekey","regsetvalue","regsetvalueex","createservice","startservice","openscmanager","setfileattributes"]},
+ {key:"privilege",label:"Élévation / jetons",weight:10,desc:"ajustement de privilèges",
+  apis:["adjusttokenprivileges","openprocesstoken","lookupprivilegevalue"]},
+ {key:"crypto",label:"Cryptographie",weight:6,desc:"chiffrement ou hachage",
+  apis:["cryptacquirecontext","cryptencrypt","cryptdecrypt","cryptgenkey","crypthashdata","bcryptencrypt","bcryptdecrypt","cryptstringtobinary"]},
+ {key:"keylog",label:"Capture clavier / espionnage",weight:14,desc:"lecture des frappes ou hooks",
+  apis:["getasynckeystate","getkeystate","registerhotkey","getrawinputdata","getforegroundwindow"]},
+ {key:"exec",label:"Exécution / dropper",weight:8,desc:"lancement d'exécutables",
+  apis:["shellexecute","winexec","createprocess"]}
+];
+function rvaToOffFields(rva,secs){
+  for(const s of secs){ const vEnd=s.vaddr+Math.max(s.vsize,s.rawSize);
+    if(rva>=s.vaddr && rva<vEnd) return rva - s.vaddr + s.rawOff; }
+  return -1;
+}
+// Énumérateur d'imports autonome (n'utilise aucun global — dédié au fichier de Défense).
+function enumImportsDefense(b,secs,is64,ddb){
+  const out=[]; const impRVA=readU32LE(b,ddb+8); if(!impRVA) return out;
+  let iOff=rvaToOffFields(impRVA,secs); if(iOff<0) return out;
+  const thunkSize=is64?8:4; let off=iOff,guard=0;
+  while(off+20<=b.length && guard++<800){
+    const orig=readU32LE(b,off),nameRVA=readU32LE(b,off+12),first=readU32LE(b,off+16);
+    if(!nameRVA && !first) break;
+    const thunkRVA=orig||first;
+    if(thunkRVA){
+      let tOff=rvaToOffFields(thunkRVA,secs),fg=0;
+      while(tOff>=0 && tOff+thunkSize<=b.length && fg++<8000){
+        const lo=readU32LE(b,tOff), hi=is64?readU32LE(b,tOff+4):0;
+        if(!lo&&!hi) break;
+        const isOrd=is64?(hi&0x80000000):(lo&0x80000000);
+        if(!isOrd){ const fOff=rvaToOffFields(lo,secs);
+          if(fOff>=0){ let fn=''; for(let i=fOff+2;i<b.length&&b[i]&&i<fOff+128;i++) fn+=String.fromCharCode(b[i]); if(fn) out.push(fn); } }
+        tOff+=thunkSize;
+      }
+    }
+    off+=20; if(out.length>5000) break;
+  }
+  return out;
+}
+function categorizeApis(flatFuncs){
+  const lookup=new Map();
+  for(const cat of API_CATEGORIES) for(const api of cat.apis) lookup.set(api,cat.key);
+  const byCat={},seen=new Set();
+  for(const f of flatFuncs){
+    let s=f.toLowerCase(); let key=lookup.get(s);
+    if(!key && /[aw]$/.test(s)) key=lookup.get(s.slice(0,-1));
+    if(key){ const d=key+'|'+f; if(seen.has(d)) continue; seen.add(d); (byCat[key]=byCat[key]||[]).push(f); }
+  }
+  const out=[];
+  for(const cat of API_CATEGORIES) if(byCat[cat.key]) out.push({cat,found:byCat[cat.key]});
+  return out;
+}
+
 function analyzeDefense(bytes, filename){
   $("defenseEmpty").classList.add("hidden");
   const box=$("defenseResult");
   box.classList.remove("hidden");
 
   const alerts=[];
+  let apiHits=[];
 
   const isPE=bytes[0]===0x4D && bytes[1]===0x5A;
 
@@ -5048,6 +5116,18 @@ function analyzeDefense(bytes, filename){
           secOff+=40;
         }
         sections.forEach(s=>{ if(entryPoint>=s.vaddr && entryPoint<s.vaddr+s.vsize) epSection=s.name; });
+        // Énumération + catégorisation des API importées (fichier de Défense)
+        try{
+          const magic=readU16LE(bytes,optOff);
+          const is64d=(magic===0x020B);
+          const ddbD=optOff+(is64d?112:96);
+          const flat=enumImportsDefense(bytes,sections,is64d,ddbD);
+          apiHits=categorizeApis(flat);
+          apiHits.forEach(h=>{
+            const strong=(h.cat.key==="injection"||h.cat.key==="keylog"||h.cat.key==="antidbg");
+            alerts.push({level:strong?"med":"med",text:`API ${h.cat.label.toLowerCase()} : <b>${h.found.slice(0,6).join(", ")}</b>${h.found.length>6?" …":""}`});
+          });
+        }catch(err){ console.warn('apis:',err); }
       }
     }catch(err){}
 
@@ -5136,6 +5216,14 @@ function analyzeDefense(bytes, filename){
   if(maxNop>=32||maxInt3>=32) addS(8,`Junk code (NOP/INT3)`);
   if(stratTraces.length>0) addS(Math.min(30,stratTraces.length*12),`Trace(s) de modification d'octets`);
   if(sections.length>0 && sections.length<=3 && globalEnt>7) addS(15,`Profil packé (peu de sections + entropie ${globalEnt.toFixed(1)})`);
+  // Facteurs issus des API importées
+  for(const h of apiHits) addS(h.cat.weight, `${h.cat.label} (${h.found.length} API)`);
+  const injHit=apiHits.find(h=>h.cat.key==="injection");
+  if(injHit){
+    const trio=["virtualallocex","writeprocessmemory","createremotethread"];
+    const got=trio.filter(t=>injHit.found.some(f=>{const s=f.toLowerCase();return s===t||s.replace(/[aw]$/,"")===t;}));
+    if(got.length>=2) addS(12,"Combo d'injection classique (alloc + write + thread)");
+  }
   if(sections.length>0){
     let mx=0; sections.forEach(s=>{ if(s.rawOff>0&&s.rawSize>0) mx=Math.max(mx,s.rawOff+s.rawSize); });
     if(mx>0 && bytes.length>mx+16){
@@ -5207,6 +5295,18 @@ function analyzeDefense(bytes, filename){
       <div style="font-weight:700;color:#1a7a35;font-size:13px;">✅ Aucune protection ni crypto détectée</div>
       <div style="font-size:11px;color:#555;margin-top:2px;">Le fichier ne présente pas de signature connue (packer, chiffrement, motif). Rappel : certaines techniques ne laissent aucune trace (voir note en bas).</div>
     </div>`;
+  }
+
+  if(apiHits.length){
+    html+=`<div style="margin-bottom:12px;padding:10px 12px;background:#fff;border:1px solid #d0a0a0;border-radius:6px;">
+      <div style="font-weight:700;color:#a83232;font-size:13px;margin-bottom:6px;">🧩 API importées notables (${apiHits.length} catégorie${apiHits.length>1?"s":""})</div>`;
+    for(const h of apiHits){
+      html+=`<div style="margin-bottom:7px;">
+        <div style="font-weight:600;font-size:12px;color:#333;">${h.cat.label} <span style="color:#999;font-weight:400;">— ${h.cat.desc}</span></div>
+        <div style="margin-top:2px;">${h.found.slice(0,24).map(f=>`<span style="display:inline-block;font-family:monospace;font-size:11px;background:#f5eeee;border:1px solid #e0cccc;border-radius:4px;padding:0 5px;margin:2px 3px 0 0;">${f}</span>`).join("")}${h.found.length>24?`<span style="font-size:11px;color:#999;">+${h.found.length-24}</span>`:""}</div>
+      </div>`;
+    }
+    html+=`<div style="font-size:10.5px;color:#888;margin-top:4px;border-top:1px dashed #e0e0e0;padding-top:5px;">Prises isolément ces API sont légitimes ; c'est leur <b>regroupement</b> qui compte (ex. <code>VirtualAllocEx</code> + <code>WriteProcessMemory</code> + <code>CreateRemoteThread</code> = schéma d'injection classique).</div></div>`;
   }
 
   html+=`<div style="margin-bottom:12px;">`;
