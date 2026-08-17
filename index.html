@@ -4387,6 +4387,16 @@ function findByteSequence(haystack, needle){
   return -1;
 }
 
+$("defenseBrowse").addEventListener("click",()=>$("defenseFile").click());
+$("defenseFile").addEventListener("change",async(e)=>{
+  const file=e.target.files[0];
+  if(!file) return;
+  const nameEl=$("defenseFileName");
+  if(nameEl){ nameEl.textContent=file.name; nameEl.style.color="#111"; }
+  const buf=new Uint8Array(await file.arrayBuffer());
+  analyzeDefense(buf, file.name);
+});
+
 function analyzeDefense(bytes, filename){
   $("defenseEmpty").classList.add("hidden");
   const box=$("defenseResult");
