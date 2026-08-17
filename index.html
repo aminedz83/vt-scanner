@@ -4303,6 +4303,31 @@ const PACKER_SIGNATURES=[
   {name:"NsPack", patterns:[".nsp0",".nsp1"]},
   {name:"Petite", patterns:[".petite"]},
   {name:"Enigma", patterns:["Enigma"]},
+  {name:"MoleBox", patterns:[".MPRESS",".molebox","MoleBox"]},
+  {name:"Obsidium", patterns:["Obsidium",".obsidium"]},
+  {name:"tElock", patterns:["tElock",".telock"]},
+  {name:"PELock", patterns:["PELock"]},
+  {name:"ExeStealth", patterns:["ExeStealth"]},
+  {name:"Yoda's Crypter", patterns:["yC","Yoda"]},
+  {name:"kkrunchy", patterns:["kkrunchy"]},
+  {name:"NSIS (installeur)", patterns:["Nullsoft","NSIS"]},
+  {name:"Inno Setup (installeur)", patterns:["Inno Setup","InnoSetup"]},
+];
+
+// Signatures de COMPILATEURS — détectées via chaînes ou motifs caractéristiques (style PEiD)
+const COMPILER_SIGNATURES=[
+  {name:"Microsoft Visual C++", patterns:["Microsoft Visual C++","MSVCR","VCRUNTIME","api-ms-win"]},
+  {name:"Visual Basic 6", patterns:["MSVBVM60.DLL","VB5!"]},
+  {name:"Borland Delphi", patterns:["Borland","Delphi","Embarcadero","SysInit","TObject"]},
+  {name:"Borland C++", patterns:["Borland C++","BORLNDMM.DLL"]},
+  {name:"MinGW / GCC", patterns:["GCC:","mingw","libgcc","__mingw"]},
+  {name:"Go (Golang)", patterns:["Go build ID","golang","runtime.main","go1."]},
+  {name:".NET / C#", patterns:["mscoree.dll","_CorExeMain",".NET Framework","#Strings","#Blob"]},
+  {name:"Rust", patterns:["rustc","rust_begin_unwind","cargo","/rust/"]},
+  {name:"Nim", patterns:["nim_program","NimMain"]},
+  {name:"AutoIt", patterns:["AutoIt","AU3!"]},
+  {name:"PyInstaller (Python)", patterns:["pyinstaller","python3","_MEIPASS","Py_Initialize"]},
+  {name:"Free Pascal", patterns:["Free Pascal","FPC "]},
 ];
 
 // Signatures cryptographiques renforcées — plusieurs empreintes par algorithme
@@ -4377,6 +4402,82 @@ function analyzeDefense(bytes, filename){
   PACKER_SIGNATURES.forEach(p=>{ if(p.patterns.some(pat=>ascii.includes(pat))) packersFound.push(p.name); });
   if(packersFound.length>0) alerts.push({level:"high",text:`Packer/protecteur détecté : <b>${packersFound.join(", ")}</b>`});
   else alerts.push({level:"ok",text:"Aucun packer connu détecté par signature"});
+
+  // 1b. Compilateur (style PEiD) — identifier avec quoi le fichier a été créé
+  const compilersFound=[];
+  COMPILER_SIGNATURES.forEach(c=>{ if(c.patterns.some(pat=>ascii.includes(pat))) compilersFound.push(c.name); });
+  if(compilersFound.length>0) alerts.push({level:"info",text:`🛠️ Compilé avec : <b>${compilersFound.join(", ")}</b>`});
+  else if(packersFound.length===0) alerts.push({level:"info",text:"🛠️ Compilateur non identifié (le fichier est peut-être packé, ou compilateur inconnu)"});
+
+  // 1c. ANALYSE DU POINT D'ENTRÉE (EP) — fonction caractéristique de PEiD
+  if(isPE){
+    try{
+      const peOff=readU32LE(bytes,0x3C);
+      if(bytes[peOff]===0x50&&bytes[peOff+1]===0x45){
+        const optOff=peOff+24;
+        const magic=readU16LE(bytes,optOff);
+        const is64=(magic===0x20B);
+        const epRVA=readU32LE(bytes,optOff+16);           // AddressOfEntryPoint
+        const subsystem=readU16LE(bytes,optOff+(is64?68:68));
+        const numSec=readU16LE(bytes,peOff+6);
+        // Convertir l'EP (RVA) en offset fichier + trouver sa section
+        let secOff=optOff+readU16LE(bytes,peOff+20);
+        let epFileOff=-1, epSection="?", epSectionChars=0;
+        const secNames=[];
+        for(let s=0;s<numSec;s++){
+          let nm=""; for(let j=0;j<8;j++){const c=bytes[secOff+j]; if(c>=32&&c<127)nm+=String.fromCharCode(c);}
+          nm=nm.replace(/\0/g,"").trim();
+          const vsize=readU32LE(bytes,secOff+8), va=readU32LE(bytes,secOff+12);
+          const rawOff=readU32LE(bytes,secOff+20), chars=readU32LE(bytes,secOff+36);
+          secNames.push(nm);
+          if(epRVA>=va && epRVA<va+Math.max(vsize,1)){ epFileOff=rawOff+(epRVA-va); epSection=nm; epSectionChars=chars; }
+          secOff+=40;
+        }
+        // Infos PE façon PEiD
+        const subName={1:"Native",2:"GUI Windows",3:"Console",5:"OS/2",7:"POSIX",9:"Windows CE"}[subsystem]||`#${subsystem}`;
+        alerts.push({level:"info",text:`📍 Point d'entrée : RVA <b>0x${epRVA.toString(16).toUpperCase()}</b>${epFileOff>=0?` (offset fichier 0x${epFileOff.toString(16).toUpperCase()})`:""} · section <b>${epSection}</b>`});
+        alerts.push({level:"info",text:`🧩 Type : <b>${is64?"PE32+ (64 bits)":"PE32 (32 bits)"}</b> · sous-système : <b>${subName}</b> · ${numSec} sections (${secNames.join(", ")})`});
+
+        // Lire les octets à l'EP (comme PEiD) et les comparer aux signatures
+        if(epFileOff>=0 && epFileOff+16<=bytes.length){
+          const epBytes=Array.from(bytes.slice(epFileOff,epFileOff+16));
+          const epHex=epBytes.map(x=>x.toString(16).toUpperCase().padStart(2,"0")).join(" ");
+          alerts.push({level:"info",text:`🔹 Octets au point d'entrée : <span style="font-family:monospace;">${epHex}</span>`});
+
+          // Signatures d'octets connues au point d'entrée
+          const EP_SIGS=[
+            {name:"UPX", sig:[0x60,0xBE], mask:[1,1]},                 // pushad; mov esi,...
+            {name:"UPX (variante)", sig:[0x60,0xE8], mask:[1,1]},
+            {name:"ASPack", sig:[0x60,0xE8,0x03], mask:[1,1,1]},
+            {name:"FSG", sig:[0x87,0x25], mask:[1,1]},
+            {name:"PECompact", sig:[0xB8], mask:[1]},                  // mov eax, imm32 au tout début
+            {name:"Petite", sig:[0xB8,0x00,0x00], mask:[1,0,0]},
+            {name:"Visual C++ (typique)", sig:[0xE8], mask:[1]},       // call (souvent au début du CRT)
+            {name:"Visual Basic", sig:[0x68], mask:[1]},               // push (VB main)
+            {name:"MSVC /GS", sig:[0x55,0x8B,0xEC], mask:[1,1,1]},     // push ebp; mov ebp,esp (prologue standard)
+          ];
+          const epMatches=[];
+          EP_SIGS.forEach(s=>{
+            let ok=true;
+            for(let i=0;i<s.sig.length;i++){ if(s.mask[i]&&epBytes[i]!==s.sig[i]){ ok=false; break; } }
+            if(ok) epMatches.push(s.name);
+          });
+          if(epMatches.length>0) alerts.push({level:"info",text:`🎯 Motif au point d'entrée compatible avec : <b>${epMatches.join(", ")}</b>`});
+
+          // 1d. HEURISTIQUE : détecter un packing probable
+          const epExec=!!(epSectionChars&0x20000000);
+          const epWritable=!!(epSectionChars&0x80000000);
+          const stdSections=[".text",".code","CODE"];
+          if(!stdSections.includes(epSection) && epSection!=="?" && packersFound.length===0){
+            alerts.push({level:"med",text:`⚠️ Heuristique : le point d'entrée est dans la section <b>${epSection}</b> (pas .text) — signe possible de packing`});
+          }
+          if(epWritable && epExec){
+            alerts.push({level:"med",text:`⚠️ Heuristique : la section du point d'entrée est à la fois inscriptible ET exécutable (RWX) — comportement typique d'un packer/déchiffreur`});
+          }
+        }
+      }
+    }catch(e){}
+  }
 
   // 2. Détection de cryptographie (constantes + opcodes + imports)
   const cryptoByAlgo={}; // algo -> [{type, offset}]
@@ -4556,9 +4657,10 @@ function analyzeDefense(bytes, filename){
 
   html+=`<div style="margin-bottom:12px;">`;
   alerts.forEach(a=>{
-    const color=a.level==="high"?"#dc3545":a.level==="med"?"#e0a800":"#28a745";
-    const icon=a.level==="high"?"🔴":a.level==="med"?"🟡":"✅";
-    html+=`<div style="padding:6px 8px;margin-bottom:4px;border-left:3px solid ${color};background:#fafafa;font-size:12px;">${icon} ${a.text}</div>`;
+    const color=a.level==="high"?"#dc3545":a.level==="med"?"#e0a800":a.level==="info"?"#3a7bc0":"#28a745";
+    const icon=a.level==="high"?"🔴":a.level==="med"?"🟡":a.level==="info"?"🛠️":"✅";
+    const shownIcon=(a.level==="info"&&a.text.includes("🛠️"))?"":icon+" ";
+    html+=`<div style="padding:6px 8px;margin-bottom:4px;border-left:3px solid ${color};background:#fafafa;font-size:12px;">${shownIcon}${a.text}</div>`;
   });
   html+=`</div>`;
 
