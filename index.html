@@ -4764,17 +4764,35 @@ $("hexRefBtn").addEventListener("click", () => {
 // ═══════════════════════════════════════════════════════════════
 
 const PACKER_SIGNATURES=[
-  {name:"UPX", patterns:["UPX0","UPX1","UPX!"]},
-  {name:"ASPack", patterns:["ASPack",".aspack"]},
-  {name:"PECompact", patterns:["PEC2","PECompact"]},
-  {name:"Themida/WinLicense", patterns:["Themida",".themida"]},
-  {name:"VMProtect", patterns:[".vmp0",".vmp1","VMProtect"]},
+  {name:"UPX", patterns:["UPX0","UPX1","UPX2","UPX!"]},
+  {name:"ASPack", patterns:["ASPack",".aspack",".adata"]},
+  {name:"ASProtect", patterns:[".asprotect","ASProtect"]},
+  {name:"PECompact", patterns:["PEC2","PECompact","pec1"]},
+  {name:"Themida/WinLicense", patterns:["Themida",".themida","WinLicense"]},
+  {name:"VMProtect", patterns:[".vmp0",".vmp1",".vmp2","VMProtect"]},
+  {name:"Armadillo", patterns:["Armadillo",".pdata0",".nicode"]},
+  {name:"Obsidium", patterns:["Obsidium",".obsidium"]},
+  {name:"PELock", patterns:["PELock","PEC0DE"]},
+  {name:"Enigma Protector", patterns:["Enigma",".enigma1",".enigma2"]},
+  {name:"MoleBox", patterns:["MoleBox",".mbx"]},
+  {name:"tElock", patterns:["tElock"]},
+  {name:"exeStealth", patterns:["exeStealth"]},
+  {name:"Yoda's Protector/Crypter", patterns:[".yP",".y0da","Yoda"]},
+  {name:"WinUpack/Upack", patterns:[".Upack",".ByDwing"]},
+  {name:"kkrunchy", patterns:["kkrunchy"]},
   {name:"MPRESS", patterns:[".MPRESS1",".MPRESS2"]},
   {name:"FSG", patterns:["FSG!"]},
   {name:"MEW", patterns:["MEW"]},
-  {name:"NsPack", patterns:[".nsp0",".nsp1"]},
+  {name:"NsPack", patterns:[".nsp0",".nsp1",".nsp2"]},
   {name:"Petite", patterns:[".petite"]},
-  {name:"Enigma", patterns:["Enigma"]},
+  {name:"NSIS (installeur)", patterns:["Nullsoft"]},
+  {name:"Inno Setup (installeur)", patterns:["Inno Setup","JR.Inno"]},
+];
+// Noms de sections standard (tout ce qui sort de là est un indice d'empaquetage).
+const STANDARD_SECTIONS=new Set([".text",".data",".rdata",".rsrc",".reloc",".idata",".edata",".pdata",".bss",".tls",".debug","CODE","DATA","BSS",".xdata",".didat",".00cfg",".gfids",".textbss",".sxdata",".rodata"]);
+// Signatures sur le point d'entrée (stub caractéristique). Conservateur.
+const EP_SIGNATURES=[
+  {name:"UPX (stub EP)", bytes:[0x60,0xBE]},   // pushad ; mov esi, imm32
 ];
 
 const CRYPTO_SIGNATURES=[
@@ -5092,6 +5110,82 @@ async function geoLocateIP(ip,spanId){
 function esc2(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
 let defenseBytesGlobal=null, defenseFileNameGlobal="", hexDefenseRef=null;
+// Profil de capacités : ce que le fichier est CAPABLE de faire (pas un verdict).
+function buildCapabilities(apiHits,net,strs,embedded,packersFound){
+  const caps=[]; const has=(k)=>apiHits.find(h=>h.cat.key===k);
+  const add=(label,ev)=>caps.push({label,ev:ev||""});
+  const inj=has("injection"); if(inj) add("Injection de code dans un autre processus",inj.found.slice(0,3).join(", "));
+  const kl=has("keylog"); if(kl) add("Capture clavier / espionnage",kl.found.slice(0,3).join(", "));
+  const nw=has("network");
+  if(nw||net.urls.length||net.ipv4.length||net.dyndns.length||net.xorUrls.length){
+    const ev=[]; if(nw) ev.push(nw.found.slice(0,2).join(", ")); if(net.dyndns.length) ev.push("DNS dynamique"); if(net.xorUrls.length) ev.push("URL masquée"); if(net.ipv4.filter(x=>x.cls==="publique").length) ev.push("IP publique");
+    add("Communication réseau",ev.join(" · ")||"indicateurs réseau");
+  }
+  const ps=has("persist"); const runKey=strs.registry.some(r=>/\\Run\b|RunOnce|CurrentVersion\\\\Run/i.test(r.s));
+  if(ps||runKey) add("Persistance (registre / services)",ps?ps.found.slice(0,2).join(", "):"clé Run");
+  const pv=has("privilege"); if(pv) add("Élévation de privilèges",pv.found.slice(0,2).join(", "));
+  const ad=has("antidbg"); if(ad) add("Anti-analyse / évasion de sandbox",ad.found.slice(0,3).join(", "));
+  const cr=has("crypto"); if(cr||packersFound.length) add("Chiffrement de données",cr?cr.found.slice(0,2).join(", "):"primitives crypto");
+  const ex=has("exec"); const tempPath=strs.paths.some(p=>/%temp%|\\temp\\|\\appdata\\/i.test(p.s));
+  if(embedded.length||(ex&&tempPath)) add("Dépôt et exécution de fichier (dropper)",embedded.length?`${embedded.length} PE embarqué`:"lancement depuis un chemin temporaire");
+  if(strs.keywords.some(k=>/credential|password|cookies|wallet|stealer|token/i.test(k.s))) add("Vol d'identifiants (indice)","chaînes évocatrices — à confirmer");
+  return caps;
+}
+// Pont VirusTotal : interroge l'API (via le backend de l'app) et affiche les VRAIS
+// noms attribués par les moteurs antivirus au hash du fichier analysé.
+const VT_STOP=new Set("trojan win32 win64 msil generic gen variant malware malicious heur riskware unwanted application program susp suspicious cloud static behaveslike packed packer obfuscated dropper downloader backdoor virus worm pua adware spyware ransom score detection detected agentgen".split(" "));
+function guessFamilies(engines){
+  const tally={};
+  (engines||[]).filter(e=>e.category==="malicious"||e.category==="suspicious").forEach(e=>{
+    if(!e.result) return;
+    const toks=[...new Set(e.result.toLowerCase().split(/[^a-z0-9]+/).filter(t=>t.length>=4&&!VT_STOP.has(t)&&!/^\d+$/.test(t)))];
+    toks.forEach(t=>tally[t]=(tally[t]||0)+1);
+  });
+  return Object.entries(tally).sort((a,b)=>b[1]-a[1]).slice(0,4);
+}
+function escVT(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function renderDefenseVT(d,box,hash){
+  if(!box) return;
+  const stats=d.stats||{}; const engines=d.engines||[];
+  const total=stats.total||engines.length;
+  const mal=engines.filter(e=>e.category==="malicious"||e.category==="suspicious");
+  let html=`<div style="font-weight:700;color:${(stats.malicious||0)>0?"#c0392b":"#1a7a35"};">Détections VirusTotal : ${stats.malicious||0} / ${total}</div>`;
+  const fams=guessFamilies(engines);
+  if(fams.length){
+    html+=`<div style="margin-top:5px;font-size:11.5px;"><b>Famille probable (consensus des moteurs) :</b><br>`+
+      fams.map(([n,c])=>`<span style="display:inline-block;background:#fdecea;border:1px solid #f0b0a8;border-radius:4px;padding:0 6px;margin:2px 3px 0 0;font-weight:600;text-transform:capitalize;">${escVT(n)} <span style="color:#999;font-weight:400;">×${c}</span></span>`).join("")+`</div>`;
+  } else if((stats.malicious||0)>0){
+    html+=`<div style="margin-top:5px;font-size:11.5px;color:#888;">Détecté, mais pas de nom de famille explicite renvoyé par les moteurs.</div>`;
+  } else {
+    html+=`<div style="margin-top:5px;font-size:11.5px;color:#1a7a35;">Aucun moteur ne le classe comme malveillant.</div>`;
+  }
+  if(mal.length){
+    html+=`<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:11.5px;color:#2b6cb0;">Nom donné par chaque moteur (${mal.length})</summary>`+
+      `<div style="max-height:200px;overflow:auto;font-size:11px;font-family:monospace;margin-top:4px;border:1px solid #e0e0e0;border-radius:4px;padding:5px;">`+
+      mal.map(e=>`<div><b>${escVT(e.engine)}</b> : <span style="color:#c0392b;">${escVT(e.result||e.category)}</span></div>`).join("")+`</div></details>`;
+  }
+  if(d.permalink) html+=`<div style="margin-top:6px;"><button onclick="window.open('${escVT(d.permalink)}','_blank','noopener')" style="cursor:pointer;border-radius:8px;padding:2px 10px;border:1px solid #2b6cb0;background:#fff;color:#2b6cb0;">Ouvrir la fiche VirusTotal ↗</button></div>`;
+  box.innerHTML=html;
+}
+async function defenseCheckVT(){
+  if(!defenseBytesGlobal) return;
+  const line=document.getElementById("vtHashLine"), box=document.getElementById("vtResultBox");
+  try{
+    if(line) line.textContent="calcul du hash…";
+    const hash=await sha256hex(defenseBytesGlobal);
+    if(line) line.textContent="SHA-256 : "+hash;
+    if(box) box.innerHTML=`<span style="color:#888;">Interrogation de VirusTotal…</span>`;
+    let r;
+    try{ r=await fetch(`/api/check-hash?hash=${hash}&filename=${encodeURIComponent(defenseFileNameGlobal||"file")}&size=${defenseBytesGlobal.length}`); }
+    catch(e){ if(box) box.innerHTML=`<span style="color:#c00;">Impossible de joindre le serveur (hors-ligne ?).</span>`; return; }
+    if(r.status===429){ if(box) box.innerHTML=`<span style="color:#c00;">Limite VirusTotal atteinte (4/min). Réessaie dans ~1 minute.</span>`; return; }
+    if(!r.ok){ if(box) box.innerHTML=`<span style="color:#c00;">Erreur serveur (${r.status}).</span>`; return; }
+    const d=await r.json();
+    if(!d.found){ if(box) box.innerHTML=`Ce fichier est <b>inconnu de VirusTotal</b> (hash jamais soumis). <button onclick="window.open('https://www.virustotal.com/gui/file/${hash}','_blank','noopener')" style="cursor:pointer;border-radius:8px;padding:2px 10px;border:1px solid #2b6cb0;background:#2b8fe6;color:#fff;margin-top:5px;">Ouvrir VT pour le soumettre ↗</button>`; return; }
+    renderDefenseVT(d,box,hash);
+  }catch(e){ if(box) box.innerHTML=`<span style="color:#c00;">Échec de la requête.</span>`; }
+}
+
 function defenseJumpToHex(off){
   try{
     if(defenseBytesGlobal && hexDefenseRef!==defenseBytesGlobal){
@@ -5206,7 +5300,7 @@ function analyzeDefense(bytes, filename){
     alerts.push({level:"ok",text:"Aucune signature cryptographique détectée (AES, ChaCha20, Salsa20, Poly1305, SHA, imports crypto)"});
   }
 
-  let sections=[], entryPoint=0, epSection="?";
+  let sections=[], entryPoint=0, epSection="?", importCount=-1;
   if(isPE){
     try{
       const peOff=bytes[0x3C]|(bytes[0x3D]<<8)|(bytes[0x3E]<<16)|(bytes[0x3F]<<24);
@@ -5232,11 +5326,20 @@ function analyzeDefense(bytes, filename){
           secOff+=40;
         }
         sections.forEach(s=>{ if(entryPoint>=s.vaddr && entryPoint<s.vaddr+s.vsize) epSection=s.name; });
+        // Signature sur le point d'entrée (stub connu)
+        try{
+          const epOff=rvaToOffFields(entryPoint,sections);
+          if(epOff>=0){ for(const sig of EP_SIGNATURES){ let ok=true;
+            for(let j=0;j<sig.bytes.length;j++){ if(bytes[epOff+j]!==sig.bytes[j]){ ok=false; break; } }
+            if(ok && !packersFound.includes(sig.name)){ packersFound.push(sig.name); packerOffsets[sig.name]=[{pat:"stub EP",off:epOff}];
+              alerts.push({level:"high",text:`Signature sur le point d'entrée : <b>${sig.name}</b>`}); } } }
+        }catch(e){}
         try{
           const magic=readU16LE(bytes,optOff);
           const is64d=(magic===0x020B);
           const ddbD=optOff+(is64d?112:96);
           const flat=enumImportsDefense(bytes,sections,is64d,ddbD);
+          importCount=flat.length;
           apiHits=categorizeApis(flat);
           apiHits.forEach(h=>{
             const strong=(h.cat.key==="injection"||h.cat.key==="keylog"||h.cat.key==="antidbg");
@@ -5338,13 +5441,48 @@ function analyzeDefense(bytes, filename){
     alerts.push({level:"med",text:`Peu de sections (${sections.length}) + entropie globale élevée (${globalEnt.toFixed(2)}/8) — profil typique d'un fichier packé`});
   }
 
+  // Détection GÉNÉRIQUE d'empaquetage (sans connaître le nom du packer)
+  let packedHeur={packed:false,reasons:[]};
+  if(isPE && sections.length){
+    const reasons=[];
+    const execHi=sections.filter(s=>s.exec&&s.ent>7.0);
+    if(execHi.length) reasons.push(`section de code à haute entropie (${execHi[0].name} ${execHi[0].ent.toFixed(2)}/8)`);
+    const nonStd=sections.filter(s=>s.name&&!STANDARD_SECTIONS.has(s.name));
+    if(nonStd.length>=Math.max(2,Math.ceil(sections.length/2))) reasons.push(`${nonStd.length} section(s) au nom non standard (${nonStd.slice(0,3).map(s=>s.name||"?").join(", ")})`);
+    if(epSection!=="?" && !STANDARD_SECTIONS.has(epSection)) reasons.push(`point d'entrée hors section de code standard (${epSection})`);
+    else { const epSec=sections.find(s=>s.name===epSection); if(epSec&&epSec.write) reasons.push(`point d'entrée dans une section modifiable (${epSection})`); }
+    if(importCount>=0 && importCount<10) reasons.push(`table d'imports minuscule (${importCount} fonction${importCount>1?"s":""})`);
+    const shrunk=sections.filter(s=>s.exec&&s.rawSize>0&&s.vsize>s.rawSize*1.6);
+    if(shrunk.length) reasons.push(`code déballé en mémoire (${shrunk[0].name} : ${(shrunk[0].rawSize/1024).toFixed(0)}Ko brut → ${(shrunk[0].vsize/1024).toFixed(0)}Ko virtuel)`);
+    if(sections.length<=3 && globalEnt>7) reasons.push(`peu de sections + entropie globale ${globalEnt.toFixed(2)}/8`);
+    if(reasons.length>=2) packedHeur={packed:true,reasons};
+  }
+  if(packersFound.length===0 && packedHeur.packed){
+    alerts.push({level:"med",text:`Fichier <b>packé</b> — packer non identifié (détection heuristique) : ${packedHeur.reasons.slice(0,3).join(" · ")}`});
+  }
+
   const highCount=alerts.filter(a=>a.level==="high").length;
   const medCount=alerts.filter(a=>a.level==="med").length;
+
+  // Heuristique binder/dropper (structurelle, sans nommer l'outil)
+  let binderHeur={detected:false,reasons:[]};
+  {
+    const r=[];
+    if(embedded.length) r.push(`${embedded.length} exécutable(s) PE embarqué(s)`);
+    const execCat=apiHits.find(h=>h.cat.key==="exec");
+    const tempPath=strs.paths.some(p=>/%temp%|\\temp\\|\\appdata\\/i.test(p.s));
+    if(execCat&&(embedded.length||tempPath)) r.push(`dépôt + exécution (${execCat.found.slice(0,2).join(", ")}${tempPath?" + chemin temporaire":""})`);
+    if(embedded.length || r.length>=2) binderHeur={detected:true,reasons:r};
+  }
+  // Profil de capacités
+  const caps=buildCapabilities(apiHits,net,strs,embedded,packersFound);
 
   const suspicion=[]; let score=0;
   const addS=(pts,label)=>{ score+=pts; suspicion.push({pts,label}); };
   if(packersFound.length>0) addS(35,`Packer connu (${packersFound.join(", ")})`);
+  else if(packedHeur.packed) addS(22,`Packé — packer non identifié`);
   if(embedded.length) addS(20,`Exécutable PE embarqué (${embedded.length})`);
+  else if(binderHeur.detected) addS(14,`Comportement de dropper`);
   if(net.xorUrls.length) addS(18,`URL masquée par XOR (${net.xorUrls.length})`);
   if(net.dyndns.length) addS(15,`Domaine DNS dynamique / No-IP (${net.dyndns.length})`);
   if(net.b64.length||net.decIps.length||net.hexIps.length) addS(10,`IP/URL encodée`);
@@ -5399,8 +5537,12 @@ function analyzeDefense(bytes, filename){
   const causes=[];
   if(packersFound.length) causes.push({w:90,title:`Empaquetage / protection (${packersFound.join(", ")})`,
     why:`Fichier reconnu comme packé/protégé. Les moteurs AV signalent très souvent les fichiers packés de façon heuristique, car l'empaquetage masque le vrai code jusqu'à l'exécution.`});
+  else if(packedHeur.packed) causes.push({w:70,title:"Empaquetage (packer non identifié)",
+    why:`Le fichier présente les signes d'un empaquetage sans signature de packer connue : ${packedHeur.reasons.slice(0,3).join(" ; ")}. Les fichiers packés sont fréquemment marqués par heuristique, que le packer soit nommé ou non.`});
   if(embedded.length) causes.push({w:75,title:"Exécutable embarqué (binder / dropper)",
     why:`${embedded.length} en-tête(s) PE trouvé(s) à l'intérieur du fichier (à l'offset ${embedded.slice(0,3).map(e=>"0x"+e.off.toString(16).toUpperCase()).join(", ")}${embedded.length>3?"…":""}). Un binaire qui en contient un autre est un schéma classique de binder/dropper, fréquemment marqué par les AV.`});
+  else if(binderHeur.detected) causes.push({w:50,title:"Comportement de dropper",
+    why:`Signes de dépôt-et-exécution : ${binderHeur.reasons.join(" ; ")}. Un fichier qui lâche puis lance un autre exécutable est un schéma courant de binder/dropper.`});
   if(net.xorUrls.length) causes.push({w:60,title:"Indicateur réseau dissimulé (URL XOR)",
     why:`${net.xorUrls.length} URL masquée(s) par XOR mono-octet, ex. « ${net.xorUrls[0].decoded.slice(0,50)} ». Cacher une URL indique souvent une adresse de commande (C2) que l'auteur ne voulait pas laisser en clair — signal fort.`});
   else if(net.dyndns.length) causes.push({w:50,title:"Domaine DNS dynamique / No-IP",
@@ -5454,7 +5596,23 @@ function analyzeDefense(bytes, filename){
     </div>`;
   }
 
-  let html=gauge+concl+`<div style="margin-bottom:12px;padding:10px;border-radius:6px;background:${highCount>0?'#f8d7da':medCount>0?'#fff3cd':'#d4edda'};border:1px solid ${highCount>0?'#dc3545':medCount>0?'#ffc107':'#28a745'};">
+  const vtBlock=`<div style="margin-bottom:12px;padding:10px 12px;background:#eef4fb;border:1px solid #b9cbe6;border-radius:6px;font-size:12px;">
+    🛡️ <b>Nom de famille du malware</b> — récupéré via VirusTotal (ce sont les moteurs antivirus qui donnent le nom réel ; l'analyse statique ne le nomme pas de façon fiable).
+    <div><button onclick="defenseCheckVT()" style="margin-top:6px;cursor:pointer;border-radius:8px;padding:3px 12px;border:1px solid #2b6cb0;background:#2b8fe6;color:#fff;font-weight:600;">🔎 Récupérer les noms depuis VirusTotal</button></div>
+    <span id="vtHashLine" style="display:block;font-family:monospace;font-size:10.5px;color:#888;margin-top:5px;"></span>
+    <div id="vtResultBox" style="margin-top:8px;font-size:12px;"></div>
+  </div>`;
+  let capsHtml="";
+  if(caps.length){
+    const escC=(s)=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    capsHtml=`<div style="margin-bottom:12px;padding:10px 12px;background:#fff;border:1px solid #d9b38c;border-radius:6px;">
+      <div style="font-weight:700;color:#a8600a;font-size:13px;margin-bottom:4px;">🧠 Profil de capacités</div>
+      <div style="font-size:10.5px;color:#888;margin-bottom:6px;">Ce que le fichier est <b>capable de</b> faire, d'après ses imports, chaînes et indicateurs. Ce n'est <b>pas</b> un verdict « trojan » — c'est la description de ses capacités, à toi d'interpréter.</div>`;
+    for(const c of caps) capsHtml+=`<div style="padding:4px 0;border-bottom:1px dashed #f0e6d8;"><b style="font-size:12px;color:#333;">${escC(c.label)}</b>${c.ev?` <span style="color:#999;font-size:11px;">— ${escC(c.ev)}</span>`:""}</div>`;
+    capsHtml+=`</div>`;
+  }
+
+  let html=gauge+concl+vtBlock+capsHtml+`<div style="margin-bottom:12px;padding:10px;border-radius:6px;background:${highCount>0?'#f8d7da':medCount>0?'#fff3cd':'#d4edda'};border:1px solid ${highCount>0?'#dc3545':medCount>0?'#ffc107':'#28a745'};">
     <b style="font-size:13px;">${filename}</b><br>
     <span style="font-size:12px;">Résumé : ${highCount>0?`🔴 ${highCount} alerte(s) forte(s)`:''} ${medCount>0?`🟡 ${medCount} point(s) d'attention`:''} ${highCount===0&&medCount===0?'✅ Rien de notable':''}</span><br>
     <span style="font-size:11px;color:#666;">Entropie globale : ${globalEnt.toFixed(2)}/8 · Taille : ${(bytes.length/1024).toFixed(1)} Ko</span>
@@ -5462,6 +5620,7 @@ function analyzeDefense(bytes, filename){
 
   const detected=[];
   if(packersFound.length>0) detected.push(`Packer : ${packersFound.join(", ")}`);
+  else if(packedHeur.packed) detected.push(`Packé (non identifié)`);
   if(embedded.length) detected.push(`PE embarqué : ${embedded.length}`);
   if(algoKeys.length>0){
     algoKeys.forEach(algo=>{
