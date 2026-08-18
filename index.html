@@ -5042,22 +5042,216 @@ function categorizeApis(flatFuncs){
   return out;
 }
 
+// Recherche d'un motif d'octets, renvoie tous les offsets (plafonné). Correct et rapide.
+function findAllBytes(hay,needle,maxHits){
+  const out=[]; if(!needle.length) return out; const first=needle[0];
+  for(let i=0;i<=hay.length-needle.length;i++){
+    if(hay[i]!==first) continue;
+    let ok=true; for(let j=1;j<needle.length;j++){ if(hay[i+j]!==needle[j]){ ok=false; break; } }
+    if(ok){ out.push(i); if(maxHits&&out.length>=maxHits) break; }
+  }
+  return out;
+}
+// Détecte un/des exécutable(s) PE embarqué(s) — signal de binder/joiner/dropper (lecture seule).
+function detectEmbeddedExecutables(bytes){
+  const res=[]; const mz=findAllBytes(bytes,[0x4D,0x5A],500);
+  for(const off of mz){
+    if(off===0) continue;                    // le PE principal lui-même
+    if(off+0x40>bytes.length) continue;
+    const elf=readU32LE(bytes,off+0x3C), peAt=off+elf;
+    if(elf>0 && elf<0x1000 && peAt+4<=bytes.length &&
+       bytes[peAt]===0x50&&bytes[peAt+1]===0x45&&bytes[peAt+2]===0&&bytes[peAt+3]===0){
+      res.push({off,peOff:peAt});
+      if(res.length>=20) break;
+    }
+  }
+  return res;
+}
+
+// ══ Détecteur d'indicateurs réseau (lecture seule) ══
+// IP/URL en clair, encodées, XOR mono-octet, structures binaires, zones chiffrées.
+function classifyIPv4(a,b,c,d){
+  if(a===127) return "loopback";
+  if(a===10) return "privée";
+  if(a===172 && b>=16 && b<=31) return "privée";
+  if(a===192 && b===168) return "privée";
+  if(a===169 && b===254) return "link-local";
+  if(a===0) return "réservée";
+  if(a>=224) return "multicast/réservée";
+  return "publique";
+}
+const IOC_TLDS="com net org ru cn info biz xyz top io co tk onion pw cc su in ir kp me online site club live app dev".split(" ");
+const DDNS_SUFFIXES="no-ip.org noip.com hopto.org zapto.org sytes.net ddns.net myftp.org myftp.biz serveftp.com servebeer.com servegame.com serveblog.net servehttp.com redirectme.net dynu.com dyndns.org dyndns.info duckdns.org ddns.me ngrok.io ngrok-free.app serveo.net loca.lt portmap.io chickenkiller.com mooo.com freedns.org".split(" ");
+function extractStrings(bytes,minLen,limit){
+  const runs=[]; let start=-1,cur=""; const end=Math.min(bytes.length,limit||bytes.length);
+  for(let i=0;i<end;i++){ const v=bytes[i];
+    if(v>=32&&v<127){ if(start<0){start=i;cur="";} cur+=String.fromCharCode(v); }
+    else { if(start>=0&&cur.length>=minLen) runs.push({off:start,s:cur}); start=-1;cur=""; } }
+  if(start>=0&&cur.length>=minLen) runs.push({off:start,s:cur});
+  return runs;
+}
+function detectNetworkIOCs(bytes){
+  const HEAVY=Math.min(bytes.length,1<<24); // 16 Mio pour les scans lourds
+  const runs=extractStrings(bytes,4,HEAVY);
+  const ipv4=[],ipv6=[],urls=[],domains=[],decIps=[],b64=[],hexIps=[],dyndns=[];
+  const seen=new Set();
+  const push=(arr,key,obj)=>{ if(seen.has(key)) return; seen.add(key); arr.push(obj); };
+  const reIPv4=/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/g;
+  const reURL=/https?:\/\/[^\s"'<>()]{4,150}/gi;
+  const reIPv6=/\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{1,4}\b|::(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{1,4}/g;
+  const reDom=new RegExp("\\b([a-z0-9][a-z0-9\\-]{0,62}\\.)+("+IOC_TLDS.join("|")+")\\b","gi");
+  const reDec=/\b\d{8,10}\b/g;
+  const reB64=/\b[A-Za-z0-9+\/]{16,}={0,2}\b/g;
+  const reHexIp=/(?<![0-9A-Fa-f])(0x)?([0-9A-Fa-f]{8})(?![0-9A-Fa-f])/g;
+  for(const r of runs){
+    let m;
+    reIPv4.lastIndex=0; while((m=reIPv4.exec(r.s))){ const a=+m[1],b=+m[2],c=+m[3],d=+m[4];
+      if(a<256&&b<256&&c<256&&d<256){ const ip=`${a}.${b}.${c}.${d}`; const cls=classifyIPv4(a,b,c,d);
+        if(cls!=="réservée") push(ipv4,"ip"+ip,{ip,off:r.off+m.index,cls}); } }
+    reURL.lastIndex=0; while((m=reURL.exec(r.s))) push(urls,"u"+m[0],{url:m[0].slice(0,150),off:r.off+m.index});
+    reIPv6.lastIndex=0; while((m=reIPv6.exec(r.s))){ if((m[0].match(/:/g)||[]).length>=2 && m[0].length>=6) push(ipv6,"v6"+m[0],{ip:m[0],off:r.off+m.index}); }
+    reDom.lastIndex=0; while((m=reDom.exec(r.s))){ const dl=m[0].toLowerCase(); push(domains,"d"+dl,{d:m[0],off:r.off+m.index});
+      if(DDNS_SUFFIXES.some(sfx=>dl===sfx||dl.endsWith("."+sfx))) push(dyndns,"dyn"+dl,{d:m[0],off:r.off+m.index}); }
+    reHexIp.lastIndex=0; while((m=reHexIp.exec(r.s))){ const prefixed=!!m[1],hs=m[2].toUpperCase();
+      if(/^(.)\1{7}$/.test(hs)) continue;
+      const a=parseInt(hs.slice(0,2),16),b=parseInt(hs.slice(2,4),16),c=parseInt(hs.slice(4,6),16),d=parseInt(hs.slice(6,8),16);
+      const cls=classifyIPv4(a,b,c,d);
+      if((cls==="publique")||(prefixed&&cls==="privée")) push(hexIps,"hx"+hs+(r.off+m.index),{ip:`${a}.${b}.${c}.${d}`,hex:(prefixed?"0x":"")+hs,cls,conf:prefixed?"bonne":"faible",off:r.off+m.index}); }
+    reDec.lastIndex=0; while((m=reDec.exec(r.s))){ const n=+m[0]; if(n>=16777216&&n<=4294967295){ const a=(n>>>24)&255,b=(n>>>16)&255,c=(n>>>8)&255,d=n&255; const cls=classifyIPv4(a,b,c,d); if(cls==="publique"||cls==="privée") push(decIps,"dec"+n,{ip:`${a}.${b}.${c}.${d}`,n,off:r.off+m.index,cls}); } }
+    reB64.lastIndex=0; while((m=reB64.exec(r.s))){ if(m[0].length>200) continue; try{ const dec=atob(m[0]);
+      if(/https?:\/\//i.test(dec)||/(\d{1,3}\.){3}\d{1,3}/.test(dec)){ const snip=dec.replace(/[^\x20-\x7e]/g,".").slice(0,80); push(b64,"b"+m[0],{decoded:snip,off:r.off+m.index}); } }catch(e){} } }
+  // sockaddr_in binaire : AF_INET (02 00) + port + IP
+  const sockaddr=[];
+  for(let i=0;i+8<=HEAVY;i++){
+    if(bytes[i]===0x02&&bytes[i+1]===0x00){
+      const port=(bytes[i+2]<<8)|bytes[i+3];
+      const a=bytes[i+4],b=bytes[i+5],c=bytes[i+6],d=bytes[i+7];
+      if(port>0&&port<=65535&&a>=1&&a<=223&&!(a===b&&b===c&&c===d)){
+        const cls=classifyIPv4(a,b,c,d);
+        if(cls==="publique"||cls==="privée"){ sockaddr.push({ip:`${a}.${b}.${c}.${d}`,port,off:i,cls}); if(sockaddr.length>=40) break; } } } }
+  // XOR à clé courte (1 à 4 octets) : attaque à texte clair connu sur "http(s)://".
+  // On DÉDUIT la clé depuis l'ancre connue (pas de force brute sur 2^32 clés).
+  const xorUrls=[]; const XLIM=Math.min(HEAVY,8<<20); const seenXor=new Set();
+  outerXor:
+  for(const anchor of ["http://","https://"]){
+    const aLen=anchor.length;
+    for(let L=1;L<=4;L++){
+      if(aLen<L+2) continue;
+      for(let i=0;i+aLen<=XLIM;i++){
+        let allZero=true; const key=new Array(L);
+        for(let j=0;j<L;j++){ key[j]=bytes[i+j]^anchor.charCodeAt(j); if(key[j]!==0) allZero=false; }
+        if(allZero) continue;                     // clé nulle = texte clair
+        let ok=true;
+        for(let j=L;j<aLen;j++){ if((bytes[i+j]^key[j%L])!==anchor.charCodeAt(j)){ ok=false; break; } }
+        if(!ok) continue;
+        let s=anchor,k=i+aLen;
+        while(k<bytes.length&&k<i+aLen+160){ const ch=bytes[k]^key[(k-i)%L]; if(ch<32||ch>=127) break; s+=String.fromCharCode(ch); k++; }
+        const dk="x"+i+"|"+s; if(seenXor.has(dk)) continue; seenXor.add(dk);   // dédup : garde la clé la plus courte
+        const keyHex=key.map(b=>b.toString(16).padStart(2,"0").toUpperCase()).join(" ");
+        xorUrls.push({off:i,key:keyHex,keyLen:L,decoded:s});
+        if(xorUrls.length>=60) break outerXor;
+      }
+    }
+  }
+  const xorTrunc=HEAVY>XLIM;
+  // Zones à haute entropie (indice de donnée chiffrée/compressée — non déchiffrable en statique)
+  const entZones=[]; const win=1024;
+  let runStart=-1;
+  for(let off=0;off+win<=HEAVY;off+=win){
+    const e=hexEntropy(bytes.slice(off,off+win));
+    if(e>=7.5){ if(runStart<0) runStart=off; }
+    else { if(runStart>=0){ entZones.push({off:runStart,size:off-runStart}); runStart=-1; } if(entZones.length>=25) break; } }
+  if(runStart>=0&&entZones.length<25) entZones.push({off:runStart,size:HEAVY-runStart});
+  return {ipv4,ipv6,urls,domains,decIps,b64,hexIps,dyndns,sockaddr,xorUrls,entZones,truncated:bytes.length>HEAVY};
+}
+
+// Saut depuis Défense vers l'éditeur Hex à un offset donné (charge le fichier analysé).
+let defenseBytesGlobal=null, defenseFileNameGlobal="", hexDefenseRef=null;
+function defenseJumpToHex(off){
+  try{
+    if(defenseBytesGlobal && hexDefenseRef!==defenseBytesGlobal){
+      hexBytes=new Uint8Array(defenseBytesGlobal);
+      hexOrigBytes=new Uint8Array(hexBytes);
+      hexDefenseRef=defenseBytesGlobal;
+      hexFileNameStr=defenseFileNameGlobal||"fichier-analysé.bin";
+      const fn=$("hexFileName"); if(fn) fn.value=hexFileNameStr;
+      hexSelectedOffset=null; hexPeOffsets=null; hexPeHighlighted=[];
+      try{ if(typeof hexSelectedRows!=='undefined'&&hexSelectedRows.clear) hexSelectedRows.clear(); }catch(e){}
+      try{ hexSectionRange=null; }catch(e){}
+      try{ detectHexPE(); }catch(e){}
+    }
+  }catch(e){ console.warn('jump load:',e); }
+  if(!hexBytes) return;
+  // Afficher les conteneurs de l'éditeur (comme le fait le bouton Parcourir)
+  try{ $("hexEditorBox")&&$("hexEditorBox").classList.remove("hidden"); }catch(e){}
+  try{ $("hexSafeBlocks")&&$("hexSafeBlocks").classList.remove("hidden"); }catch(e){}
+  try{ if($("hexDisasmBox")) $("hexDisasmBox").classList.remove("hidden"); }catch(e){}
+  const pageBytes=HEX_PAGE_ROWS*HEX_COLS;
+  switchTab('hex');
+  hexPage=Math.floor(off/pageBytes);
+  hexSelectedOffset=off;
+  try{ renderHex(); }catch(e){}
+  try{ if(typeof renderHexSectionMap==='function') renderHexSectionMap(); }catch(e){}
+  try{ if(typeof renderHexEntropyMap==='function') renderHexEntropyMap(); }catch(e){}
+  setTimeout(()=>{ try{ scrollHexToOffset(Math.floor(off/HEX_COLS)*HEX_COLS); }catch(e){} },90);
+}
+
 function analyzeDefense(bytes, filename){
+  defenseBytesGlobal=bytes; defenseFileNameGlobal=filename||"fichier-analysé.bin"; hexDefenseRef=null;
   $("defenseEmpty").classList.add("hidden");
   const box=$("defenseResult");
   box.classList.remove("hidden");
 
   const alerts=[];
   let apiHits=[];
+  let zones=[];
 
   const isPE=bytes[0]===0x4D && bytes[1]===0x5A;
 
   // 1. Packers
   const ascii=bytesToAscii(bytes);
-  const packersFound=[];
-  PACKER_SIGNATURES.forEach(p=>{ if(p.patterns.some(pat=>ascii.includes(pat))) packersFound.push(p.name); });
+  const packersFound=[]; const packerOffsets={};
+  PACKER_SIGNATURES.forEach(p=>{
+    for(const pat of p.patterns){
+      const nb=Array.from(pat).map(c=>c.charCodeAt(0));
+      const hits=findAllBytes(bytes,nb,3);
+      if(hits.length){
+        if(!packersFound.includes(p.name)) packersFound.push(p.name);
+        (packerOffsets[p.name]=packerOffsets[p.name]||[]).push({pat,off:hits[0]});
+      }
+    }
+  });
   if(packersFound.length>0) alerts.push({level:"high",text:`Packer/protecteur détecté : <b>${packersFound.join(", ")}</b>`});
   else alerts.push({level:"ok",text:"Aucun packer connu détecté par signature"});
+  Object.keys(packerOffsets).forEach(name=>{
+    const f=packerOffsets[name][0];
+    zones.push({label:`Marqueur packer ${name}`,off:f.off,size:null,detail:`motif « ${f.pat} »`});
+  });
+
+  // Détection d'exécutable(s) PE embarqué(s) — binder / joiner / dropper (lecture seule)
+  let embedded=[];
+  try{ embedded=detectEmbeddedExecutables(bytes); }catch(e){ console.warn('embedded:',e); }
+  if(embedded.length){
+    alerts.push({level:"high",text:`Exécutable PE embarqué détecté : <b>${embedded.length}</b> (schéma binder/dropper possible)`});
+    embedded.forEach((e,i)=>zones.push({label:`PE embarqué #${i+1}`,off:e.off,size:null,detail:`en-tête MZ · signature PE à 0x${e.peOff.toString(16).toUpperCase()}`}));
+  }
+
+  // Indicateurs réseau (IP, URL, domaines, XOR, encodages, zones chiffrées)
+  let net={ipv4:[],ipv6:[],urls:[],domains:[],decIps:[],b64:[],hexIps:[],dyndns:[],sockaddr:[],xorUrls:[],entZones:[]};
+  try{ net=detectNetworkIOCs(bytes); }catch(e){ console.warn('net:',e); }
+  const pubIps=net.ipv4.filter(x=>x.cls==="publique");
+  if(net.xorUrls.length) alerts.push({level:"high",text:`URL(s) masquée(s) par XOR révélée(s) : <b>${net.xorUrls.length}</b>`});
+  if(net.dyndns.length) alerts.push({level:"high",text:`Domaine(s) DNS dynamique / No-IP : <b>${net.dyndns.map(x=>x.d).slice(0,3).join(", ")}</b>${net.dyndns.length>3?" …":""}`});
+  if(net.sockaddr.length) alerts.push({level:"med",text:`Structure(s) réseau binaire (sockaddr_in) : <b>${net.sockaddr.length}</b>`});
+  if(net.b64.length||net.decIps.length||net.hexIps.length) alerts.push({level:"med",text:`IP/URL encodée(s) (base64/entier/hex) : <b>${net.b64.length+net.decIps.length+net.hexIps.length}</b>`});
+  if(net.urls.length||pubIps.length||net.domains.length) alerts.push({level:"med",text:`Indicateurs réseau en clair : ${net.urls.length} URL, ${net.ipv4.length} IPv4, ${net.domains.length} domaine(s)`});
+  // Offsets réseau notables dans la cartographie
+  net.xorUrls.slice(0,5).forEach(x=>zones.push({label:`URL XOR (clé ${x.key}${x.keyLen>1?", "+x.keyLen+" o":""})`,off:x.off,size:null,detail:x.decoded.slice(0,60)}));
+  net.dyndns.slice(0,5).forEach(x=>zones.push({label:`Domaine DNS dynamique`,off:x.off,size:null,detail:x.d}));
+  net.hexIps.slice(0,5).forEach(x=>zones.push({label:`IP hexadécimale`,off:x.off,size:null,detail:`${x.hex} → ${x.ip} (${x.cls})`}));
+  net.sockaddr.slice(0,5).forEach(s=>zones.push({label:`sockaddr_in`,off:s.off,size:8,detail:`${s.ip}:${s.port} (${s.cls})`}));
+  pubIps.slice(0,5).forEach(x=>zones.push({label:`IP publique`,off:x.off,size:null,detail:x.ip}));
+  net.urls.slice(0,5).forEach(u=>zones.push({label:`URL`,off:u.off,size:null,detail:u.url.slice(0,60)}));
 
   // 2. Détection de cryptographie (constantes + opcodes + imports)
   const cryptoByAlgo={}; // algo -> [{type, offset}]
@@ -5128,6 +5322,38 @@ function analyzeDefense(bytes, filename){
             alerts.push({level:strong?"med":"med",text:`API ${h.cat.label.toLowerCase()} : <b>${h.found.slice(0,6).join(", ")}</b>${h.found.length>6?" …":""}`});
           });
         }catch(err){ console.warn('apis:',err); }
+        // Cartographie des zones sensibles (offsets — lecture seule)
+        try{
+          const magic2=readU16LE(bytes,optOff);
+          const is64z=(magic2===0x020B);
+          const ddbZ=optOff+(is64z?112:96);
+          const hxz=(n)=>"0x"+(n>>>0).toString(16).toUpperCase();
+          zones.push({label:"En-tête PE (signature NT)",off:peOff,size:null,detail:"e_lfanew → début des en-têtes NT"});
+          const epOff=rvaToOffFields(entryPoint,sections);
+          zones.push({label:"Point d'entrée (OEP)",off:epOff>=0?epOff:null,size:null,detail:`RVA ${hxz(entryPoint)} · section ${epSection}`});
+          sections.forEach(s=>{
+            const flags=[];
+            if(s.ent>7.0) flags.push(`entropie ${s.ent.toFixed(2)}/8`);
+            if(s.exec&&s.write) flags.push("RWX (exécutable+modifiable)");
+            if(s.rawSize===0 && s.vsize>0) flags.push("vide sur disque (déballée en mémoire)");
+            if(flags.length) zones.push({label:`Section ${s.name||"(?)"}`,off:s.rawOff||null,size:s.rawSize||null,detail:flags.join(" · ")});
+          });
+          for(const algo of Object.keys(cryptoByAlgo))
+            for(const h of cryptoByAlgo[algo]) zones.push({label:`Constante crypto ${algo}`,off:h.offset,size:null,detail:h.type});
+          const impRVA=readU32LE(bytes,ddbZ+8);
+          if(impRVA){ const io=rvaToOffFields(impRVA,sections); if(io>=0){
+            const cats=apiHits.map(h=>h.cat.label).join(", ");
+            zones.push({label:"Table d'imports",off:io,size:null,detail:cats?("catégories : "+cats):"—"});
+          }}
+          let mxz=0; sections.forEach(s=>{ if(s.rawOff>0&&s.rawSize>0) mxz=Math.max(mxz,s.rawOff+s.rawSize); });
+          if(mxz>0 && bytes.length>mxz+16){
+            const ovEnt=hexEntropy(bytes.slice(mxz,Math.min(mxz+(1<<20),bytes.length)));
+            zones.push({label:"Overlay (données après EOF)",off:mxz,size:bytes.length-mxz,detail:`entropie ${ovEnt.toFixed(2)}/8`});
+          }
+          const sOff=readU32LE(bytes,ddbZ+32), sSz=readU32LE(bytes,ddbZ+36);
+          if(sOff && sSz) zones.push({label:"Signature Authenticode",off:sOff,size:sSz,detail:"certificat (répertoire de sécurité)"});
+          else zones.push({label:"Signature Authenticode",off:null,size:null,detail:"absente — fichier non signé"});
+        }catch(err){ console.warn('zones:',err); }
       }
     }catch(err){}
 
@@ -5206,6 +5432,12 @@ function analyzeDefense(bytes, filename){
   const suspicion=[]; let score=0;
   const addS=(pts,label)=>{ score+=pts; suspicion.push({pts,label}); };
   if(packersFound.length>0) addS(35,`Packer connu (${packersFound.join(", ")})`);
+  if(embedded.length) addS(20,`Exécutable PE embarqué (${embedded.length})`);
+  if(net.xorUrls.length) addS(18,`URL masquée par XOR (${net.xorUrls.length})`);
+  if(net.dyndns.length) addS(15,`Domaine DNS dynamique / No-IP (${net.dyndns.length})`);
+  if(net.b64.length||net.decIps.length||net.hexIps.length) addS(10,`IP/URL encodée`);
+  if(net.sockaddr.length) addS(8,`sockaddr_in binaire (${net.sockaddr.length})`);
+  if(pubIps.length||net.domains.length) addS(6,`Indicateurs réseau en clair`);
   if(algoKeys.length>0) addS(Math.min(20,algoKeys.length*8),`Constantes crypto (${algoKeys.length})`);
   if(cryptoLibs.length>0) addS(5,`Import crypto`);
   const hEntSecs=sections.filter(s=>s.ent>7.0);
@@ -5252,7 +5484,66 @@ function analyzeDefense(bytes, filename){
     </div>
   </div>`;
 
-  let html=gauge+`<div style="margin-bottom:12px;padding:10px;border-radius:6px;background:${highCount>0?'#f8d7da':medCount>0?'#fff3cd':'#d4edda'};border:1px solid ${highCount>0?'#dc3545':medCount>0?'#ffc107':'#28a745'};">
+  // ── Conclusion probable (diagnostic, lecture seule) ──
+  const causes=[];
+  if(packersFound.length) causes.push({w:90,title:`Empaquetage / protection (${packersFound.join(", ")})`,
+    why:`Fichier reconnu comme packé/protégé. Les moteurs AV signalent très souvent les fichiers packés de façon heuristique, car l'empaquetage masque le vrai code jusqu'à l'exécution.`});
+  if(embedded.length) causes.push({w:75,title:"Exécutable embarqué (binder / dropper)",
+    why:`${embedded.length} en-tête(s) PE trouvé(s) à l'intérieur du fichier (à l'offset ${embedded.slice(0,3).map(e=>"0x"+e.off.toString(16).toUpperCase()).join(", ")}${embedded.length>3?"…":""}). Un binaire qui en contient un autre est un schéma classique de binder/dropper, fréquemment marqué par les AV.`});
+  if(net.xorUrls.length) causes.push({w:60,title:"Indicateur réseau dissimulé (URL XOR)",
+    why:`${net.xorUrls.length} URL masquée(s) par XOR mono-octet, ex. « ${net.xorUrls[0].decoded.slice(0,50)} ». Cacher une URL indique souvent une adresse de commande (C2) que l'auteur ne voulait pas laisser en clair — signal fort.`});
+  else if(net.dyndns.length) causes.push({w:50,title:"Domaine DNS dynamique / No-IP",
+    why:`Présence de ${net.dyndns.map(x=>x.d).slice(0,3).join(", ")}${net.dyndns.length>3?"…":""}. Les services DNS dynamiques sont très utilisés pour héberger des serveurs C2 (adresse changeante, gratuite) — indicateur classique en analyse de malware.`});
+  else if(net.sockaddr.length && pubIps.length) causes.push({w:40,title:"Communication réseau vers IP publique",
+    why:`Structure(s) sockaddr_in + IP publique(s) en clair — le binaire contient des adresses de connexion codées en dur.`});
+  const injC=apiHits.find(h=>h.cat.key==="injection");
+  if(injC){
+    const trio=["virtualallocex","writeprocessmemory","createremotethread"];
+    const got=trio.filter(t=>injC.found.some(f=>{const s=f.toLowerCase();return s===t||s.replace(/[aw]$/,"")===t;}));
+    causes.push({w:got.length>=2?85:60,title:"Schéma d'injection de code en mémoire",
+      why:`Imports d'injection présents (${injC.found.slice(0,4).join(", ")}${injC.found.length>4?"…":""}). ${got.length>=2?"Le combo classique alloc + write + thread est un déclencheur comportemental fort.":"Signal comportemental surveillé par les heuristiques."}`});
+  }
+  const hEntC=sections.filter(s=>s.ent>7.2);
+  if(hEntC.length) causes.push({w:70,title:"Code compressé ou chiffré (haute entropie)",
+    why:`Section(s) à très haute entropie : ${hEntC.map(s=>`${s.name} ${s.ent.toFixed(2)}/8`).join(", ")}. Une section de code quasi aléatoire évoque un packer/crypter — motif fréquemment marqué.`});
+  if(Object.keys(cryptoByAlgo).length && hEntC.length) causes.push({w:65,title:"Stub de déchiffrement (crypter)",
+    why:`Constantes crypto (${Object.keys(cryptoByAlgo).join(", ")}) + section à haute entropie : profil typique d'un payload chiffré déballé au lancement.`});
+  const rwxC=sections.filter(s=>s.exec&&s.write);
+  if(rwxC.length) causes.push({w:55,title:"Code auto-modifiant (section RWX)",
+    why:`Section exécutable ET modifiable (${rwxC.map(s=>s.name).join(", ")}) — souvent liée au déballage en mémoire, surveillée par les heuristiques.`});
+  const adC=apiHits.find(h=>h.cat.key==="antidbg");
+  if(adC) causes.push({w:50,title:"Techniques anti-analyse",
+    why:`API anti-debug/sandbox (${adC.found.slice(0,3).join(", ")}) — leur présence augmente le score heuristique de nombreux moteurs.`});
+  const ovZ=zones.find(z=>z.label&&z.label.indexOf("Overlay")===0);
+  if(ovZ){ const m=/entropie (\d+\.\d+)/.exec(ovZ.detail||""); if(m&&parseFloat(m[1])>=7.2)
+    causes.push({w:40,title:"Données chiffrées après EOF (overlay)",why:`Overlay à haute entropie (${ovZ.detail}) — données ajoutées souvent chiffrées ou compressées.`}); }
+  if(stratTraces&&stratTraces.length) causes.push({w:45,title:"Traces de modification d'octets",
+    why:`Motifs de remplissage/altération détectés — un fichier visiblement retouché est souvent traité avec méfiance.`});
+  if(isPE && epSection!=="?" && epSection!==".text" && epSection!=="CODE") causes.push({w:35,title:"Point d'entrée inhabituel",
+    why:`Point d'entrée dans la section ${epSection} au lieu de .text — courant sur les fichiers packés.`});
+  if(maxNop>=64||maxInt3>=64) causes.push({w:30,title:"Remplissage / junk code",
+    why:`Longues séries de NOP/INT3 — remplissage parfois utilisé pour altérer l'empreinte du fichier.`});
+
+  let concl;
+  if(causes.length===0){
+    concl=`<div style="margin-bottom:12px;padding:12px;background:#eef6ee;border:1px solid #9cc79c;border-radius:8px;">
+      <div style="font-weight:800;color:#1a7a35;font-size:13.5px;">Cause probable de la détection : indéterminée par analyse statique</div>
+      <div style="margin-top:5px;color:#333;font-size:12px;">Aucun signal statique marquant (pas de packer connu, pas de combo d'injection, entropie normale). Une détection éventuelle viendrait plutôt d'une signature portant sur des octets précis, d'une analyse <b>comportementale</b> à l'exécution, ou de la <b>réputation cloud</b> du fichier — éléments qui ne se lisent pas dans le binaire au repos.</div>
+    </div>`;
+  } else {
+    causes.sort((a,b)=>b.w-a.w);
+    const top=causes[0], rest=causes.slice(1);
+    concl=`<div style="margin-bottom:12px;padding:12px;background:#fdf3f3;border:2px solid #d98a8a;border-radius:8px;">
+      <div style="font-weight:800;color:#a1281f;font-size:14px;">Cause probable de la détection : ${top.title}</div>
+      <div style="margin-top:5px;color:#333;font-size:12px;">${top.why}</div>
+      ${rest.length?`<div style="margin-top:9px;font-weight:600;font-size:12px;color:#555;">Facteurs contributifs :</div><ul style="margin:4px 0 0 18px;padding:0;font-size:11.5px;color:#555;">${rest.map(c=>`<li style="margin-bottom:3px;"><b>${c.title}</b> — ${c.why}</li>`).join("")}</ul>`:""}
+      <div style="margin-top:9px;font-size:10.5px;color:#888;border-top:1px dashed #e0d0d0;padding-top:6px;">
+        ⚠️ Diagnostic <b>probabiliste</b>. L'analyse statique montre <b>ce qui</b>, dans le fichier, fait typiquement réagir un moteur — elle ne révèle pas la règle exacte d'un antivirus donné (signatures et heuristiques propriétaires ne se lisent pas depuis le binaire). C'est la cause la plus plausible au vu des preuves, pas une certitude.
+      </div>
+    </div>`;
+  }
+
+  let html=gauge+concl+`<div style="margin-bottom:12px;padding:10px;border-radius:6px;background:${highCount>0?'#f8d7da':medCount>0?'#fff3cd':'#d4edda'};border:1px solid ${highCount>0?'#dc3545':medCount>0?'#ffc107':'#28a745'};">
     <b style="font-size:13px;">${filename}</b><br>
     <span style="font-size:12px;">Résumé : ${highCount>0?`🔴 ${highCount} alerte(s) forte(s)`:''} ${medCount>0?`🟡 ${medCount} point(s) d'attention`:''} ${highCount===0&&medCount===0?'✅ Rien de notable':''}</span><br>
     <span style="font-size:11px;color:#666;">Entropie globale : ${globalEnt.toFixed(2)}/8 · Taille : ${(bytes.length/1024).toFixed(1)} Ko</span>
@@ -5261,6 +5552,7 @@ function analyzeDefense(bytes, filename){
   // Bandeau verdict : liste ce qui a été détecté avec détails
   const detected=[];
   if(packersFound.length>0) detected.push(`Packer : ${packersFound.join(", ")}`);
+  if(embedded.length) detected.push(`PE embarqué : ${embedded.length}`);
   if(algoKeys.length>0){
     algoKeys.forEach(algo=>{
       const hits=cryptoByAlgo[algo];
@@ -5307,6 +5599,61 @@ function analyzeDefense(bytes, filename){
       </div>`;
     }
     html+=`<div style="font-size:10.5px;color:#888;margin-top:4px;border-top:1px dashed #e0e0e0;padding-top:5px;">Prises isolément ces API sont légitimes ; c'est leur <b>regroupement</b> qui compte (ex. <code>VirtualAllocEx</code> + <code>WriteProcessMemory</code> + <code>CreateRemoteThread</code> = schéma d'injection classique).</div></div>`;
+  }
+
+  if(net && (net.ipv4.length||net.ipv6.length||net.urls.length||net.domains.length||net.sockaddr.length||net.decIps.length||net.b64.length||net.xorUrls.length||net.hexIps.length||net.dyndns.length||net.entZones.length)){
+    const hxn=(n)=>"0x"+(n>>>0).toString(16).toUpperCase();
+    const esc=(s)=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const chipRow=(items,fmt)=>items.map(fmt).join("");
+    html+=`<div style="margin-bottom:12px;padding:10px 12px;background:#fff;border:1px solid #a9c2b0;border-radius:6px;">
+      <div style="font-weight:700;color:#1a7a4a;font-size:13px;margin-bottom:6px;">🌐 Indicateurs réseau</div>`;
+    const line=(label,arr,fmt,strong)=>{ if(!arr.length) return "";
+      return `<div style="margin-bottom:7px;"><div style="font-weight:600;font-size:12px;color:${strong?"#a1281f":"#333"};">${label} (${arr.length})</div>
+        <div style="font-size:11px;color:#555;margin-top:2px;">${chipRow(arr.slice(0,15),fmt)}${arr.length>15?`<span style="color:#999;"> +${arr.length-15}</span>`:""}</div></div>`; };
+    const tag=(txt,off)=>`<span onclick="defenseJumpToHex(${off})" title="Ouvrir dans l'éditeur Hex" style="cursor:pointer;display:inline-block;font-family:monospace;background:#eef6f0;border:1px solid #cfe3d6;border-radius:4px;padding:0 5px;margin:2px 3px 0 0;">${esc(txt)} <span style="color:#2b8fe6;text-decoration:underline;">@${hxn(off)}</span></span>`;
+    html+=line("URL masquées par XOR (révélées)",net.xorUrls,x=>tag(x.decoded.slice(0,50)+" [clé "+x.key+(x.keyLen>1?" · "+x.keyLen+" o":"")+"]",x.off));
+    html+=line("⚑ Domaines DNS dynamique / No-IP",net.dyndns,d=>tag(d.d,d.off),true);
+    html+=line("sockaddr_in (IP:port binaire)",net.sockaddr,s=>tag(`${s.ip}:${s.port}`,s.off));
+    html+=line("IP hexadécimale",net.hexIps,x=>tag(`${x.hex} → ${x.ip}${x.conf==="faible"?" (faible conf.)":""}`,x.off));
+    html+=line("IP/URL encodées (base64)",net.b64,b=>tag(b.decoded.slice(0,40),b.off));
+    html+=line("IP en entier décimal",net.decIps,d=>tag(`${d.ip} (${d.n})`,d.off));
+    html+=line("URL en clair",net.urls,u=>tag(u.url.slice(0,50),u.off));
+    html+=line("IPv4",net.ipv4,x=>tag(`${x.ip} · ${x.cls}`,x.off));
+    html+=line("IPv6",net.ipv6,x=>tag(x.ip,x.off));
+    html+=line("Domaines",net.domains,d=>tag(d.d,d.off));
+    if(net.entZones.length){
+      const totalKo=net.entZones.reduce((a,z)=>a+z.size,0)/1024;
+      html+=`<div style="margin-bottom:4px;"><div style="font-weight:600;font-size:12px;color:#333;">Zones à haute entropie (${net.entZones.length})</div>
+        <div style="font-size:11px;color:#555;margin-top:2px;">${net.entZones.slice(0,10).map(z=>tag(`${(z.size/1024).toFixed(1)} Ko`,z.off)).join("")}${net.entZones.length>10?`<span style="color:#999;"> +${net.entZones.length-10}</span>`:""}</div></div>`;
+      html+=`<div style="font-size:10.5px;color:#a86500;margin-top:2px;">⚠️ ~${totalKo.toFixed(0)} Ko de données possiblement chiffrées/compressées. Le contenu <b>chiffré</b> n'est <b>pas déchiffrable</b> par analyse statique — seule sa présence est signalée (une IP réellement chiffrée est ici indistinguable d'aléatoire).</div>`;
+    }
+    html+=`<div style="font-size:10.5px;color:#888;margin-top:6px;border-top:1px dashed #e0e0e0;padding-top:5px;">Chaque indicateur est donné avec son offset (@0x…), cliquable pour l'ouvrir dans l'éditeur hex. Le XOR à clé courte (1 à 4 octets) est cassé automatiquement par texte clair connu ; un chiffrement réel (AES, RC4, XOR à longue clé…) ne l'est pas — c'est une limite mathématique, pas de l'outil.</div>`;
+    if(net.truncated) html+=`<div style="font-size:10.5px;color:#999;margin-top:3px;">Scan limité aux 16 premiers Mio (fichier volumineux).</div>`;
+    html+=`</div>`;
+  }
+
+  if(zones.length){
+    const hxz=(n)=>"0x"+(n>>>0).toString(16).toUpperCase();
+    html+=`<div style="margin-bottom:12px;padding:10px 12px;background:#fff;border:1px solid #b9c6dc;border-radius:6px;">
+      <div style="font-weight:700;color:#2b5ca0;font-size:13px;margin-bottom:4px;">📍 Cartographie des zones sensibles (offsets)</div>
+      <div style="font-size:10.5px;color:#888;margin-bottom:8px;">Emplacement dans le fichier des éléments relevés. Lecture seule — aucun de ces offsets n'est « à modifier » ; c'est une carte, pas une cible.</div>`;
+    for(const z of zones){
+      const offTxt=z.off!=null?`<span onclick="defenseJumpToHex(${z.off})" title="Ouvrir dans l'éditeur Hex" style="cursor:pointer;font-family:monospace;color:#2b5ca0;font-weight:600;text-decoration:underline;">${hxz(z.off)}</span>`:`<span style="color:#aaa;">—</span>`;
+      const detail=(z.size!=null?`${z.size.toLocaleString('fr-FR')} octets · `:"")+(z.detail||"");
+      let hexRow="";
+      if(z.off!=null && z.off>=0 && z.off<bytes.length){
+        const n=Math.min(16,bytes.length-z.off);
+        let hh="",asc="";
+        for(let i=0;i<n;i++){ const v=bytes[z.off+i]; hh+=v.toString(16).padStart(2,"0").toUpperCase()+" "; asc+=(v>=32&&v<127)?String.fromCharCode(v):"."; }
+        hexRow=`<div style="font-family:monospace;font-size:10.5px;color:#555;margin-top:3px;background:#f6f8fc;border:1px solid #e6ecf5;border-radius:4px;padding:3px 6px;white-space:nowrap;overflow-x:auto;">0x${(z.off>>>0).toString(16).toUpperCase().padStart(8,"0")}  ${hh} |${asc}|</div>`;
+      }
+      html+=`<div style="padding:6px 0;border-bottom:1px dashed #eaeef5;font-size:11.5px;">
+        <div><b style="color:#333;">${z.label}</b> — ${offTxt}</div>
+        <div style="color:#666;font-size:11px;margin-top:1px;">${detail}</div>
+        ${hexRow}
+      </div>`;
+    }
+    html+=`</div>`;
   }
 
   html+=`<div style="margin-bottom:12px;">`;
