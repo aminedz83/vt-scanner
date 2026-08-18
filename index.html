@@ -129,7 +129,7 @@
   .secent-val{width:96px;flex:none;text-align:right;}
   /* Historique */
   .hist-table{width:100%;border-collapse:collapse;font-size:12px;}
-  .hist-table th{background:#d4d0c8;padding:5px 8px;text-align:left;border:1px solid var(--win-border);}
+  .hist-table th{background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:var(--panel-blue);padding:6px 8px;text-align:left;border:1px solid #c8ccd8;font-weight:700;}
   .hist-table td{padding:5px 8px;border:1px solid #ddd;vertical-align:middle;}
   .hist-table tr:nth-child(even){background:#f5f3ee;}
   .hist-table .actions{display:flex;gap:4px;}
@@ -137,7 +137,7 @@
   .hash-short{font-family:monospace;font-size:11px;}
   /* Diff */
   .diff-table{width:100%;border-collapse:collapse;font-size:12px;font-family:monospace;}
-  .diff-table th{background:#d4d0c8;padding:5px 8px;text-align:left;border:1px solid var(--win-border);}
+  .diff-table th{background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:var(--panel-blue);padding:6px 8px;text-align:left;border:1px solid #c8ccd8;font-weight:700;}
   .diff-table td{padding:4px 8px;border:1px solid #ddd;}
   .diff-old{color:var(--red);font-weight:700;}
   .diff-new{color:var(--green);font-weight:700;}
@@ -772,12 +772,12 @@
       <div id="diffEmpty" class="empty-msg">Charge et modifie un fichier depuis l'éditeur PE ou Hex,<br>puis exporte-le pour voir la comparaison ici.</div>
       <div id="diffContent" class="hidden">
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">
-          <div style="flex:1;background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
-            <div style="font-size:11px;color:#888;margin-bottom:4px;">SHA-256 ORIGINAL</div>
+          <div style="flex:1;min-width:0;background:linear-gradient(180deg,#fff,#fdf6f6);border:1px solid #f0d0d0;border-radius:8px;padding:10px;box-shadow:0 1px 2px rgba(0,0,0,.05);">
+            <div style="font-size:10px;color:#c00;margin-bottom:4px;font-weight:700;letter-spacing:.02em;">🔑 SHA-256 ORIGINAL</div>
             <div id="diffHashOrig" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--red);"></div>
           </div>
-          <div style="flex:1;background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
-            <div style="font-size:11px;color:#888;margin-bottom:4px;">SHA-256 MODIFIÉ</div>
+          <div style="flex:1;min-width:0;background:linear-gradient(180deg,#fff,#f6fdf8);border:1px solid #c5e5c5;border-radius:8px;padding:10px;box-shadow:0 1px 2px rgba(0,0,0,.05);">
+            <div style="font-size:10px;color:#0a7;margin-bottom:4px;font-weight:700;letter-spacing:.02em;">🔑 SHA-256 MODIFIÉ</div>
             <div id="diffHashNew" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--green);"></div>
           </div>
         </div>
@@ -3526,34 +3526,41 @@ function renderHexVariants(){
   html += `<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">`;
   hexVariants.forEach((v, i) => {
     const isAES = v.strategy && v.strategy.includes('AES-256');
-    html += `<div style="border-top:2px solid #ffffff;border-left:2px solid #ffffff;border-right:2px solid #808080;border-bottom:2px solid #808080;background:${i%2?'#e8e5dd':'#f4f2ec'};padding:10px;box-sizing:border-box;margin-bottom:8px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;border-bottom:1px solid #b8b4ac;padding-bottom:6px;">
-        <span style="font-weight:700;color:var(--panel-blue);font-size:13px;">${v.name}</span>
-        <span style="display:flex;gap:8px;align-items:center;">
-          ${v.vtTotal !== undefined ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${v.vtDetections > 0 ? '#ffe0e0' : '#e0f5e0'};color:${v.vtDetections > 0 ? '#c00' : '#0a7'};" title="Détections VirusTotal">🛡️ ${v.vtDetections}/${v.vtTotal}</span>` : ''}
-          <span style="font-size:11px;font-weight:600;">${v.pe ? '<span style="color:#0a7;">✅ PE valide</span>' : '<span style="color:#c00;">❌ PE invalide</span>'}</span>
-          ${isAES ? '<span style="font-size:11px;font-weight:600;background:#d4edda;padding:2px 8px;border-radius:10px;color:#155724;">🔐 AES</span>' : ''}
+    const riskBadge = v.breakRisk
+      ? (v.breakRisk.level==='high'?'<span style="color:#c00;font-weight:700;">🔴 Élevé</span>'
+        : v.breakRisk.level==='low'?'<span style="color:#0a7;font-weight:700;">🟢 Faible</span>'
+        : '<span style="color:#e0a800;font-weight:700;">🟡 Inconnu</span>')
+      : '—';
+    html += `<div style="border:1px solid #c5c1b7;border-top-color:#fff;border-left-color:#fff;border-radius:8px;background:${i%2?'#eceae2':'#f6f4ee'};padding:0;box-sizing:border-box;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;padding:9px 11px;background:linear-gradient(180deg,#eef1f8,#e2e6f0);border-bottom:1px solid #c8ccd8;">
+        <span style="font-weight:700;color:var(--panel-blue);font-size:13px;display:flex;align-items:center;gap:5px;">📄 ${v.name}</span>
+        <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          ${v.vtTotal !== undefined ? `<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;background:${v.vtDetections > 0 ? '#ffe0e0' : '#e0f5e0'};color:${v.vtDetections > 0 ? '#c00' : '#0a7'};border:1px solid ${v.vtDetections > 0 ? '#f0b0b0' : '#a5d5a5'};" title="Détections VirusTotal">🛡️ ${v.vtDetections}/${v.vtTotal}</span>` : ''}
+          <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;background:${v.pe?'#e0f5e0':'#ffe0e0'};color:${v.pe?'#0a7':'#c00'};border:1px solid ${v.pe?'#a5d5a5':'#f0b0b0'};">${v.pe ? '✅ PE valide' : '❌ PE invalide'}</span>
+          ${isAES ? '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;background:#d4edda;color:#155724;border:1px solid #a5d5a5;">🔐 AES</span>' : ''}
         </span>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px;color:#444;margin-bottom:8px;">
-        <span><b style="color:#666;">Blocs modifiés :</b> <span style="color:var(--panel-blue);font-weight:600;">${v.blocks || '—'}</span></span>
-        <span><b style="color:#666;">Stratégie :</b> ${HEX_STRAT_LABELS[v.strategy] || v.strategy}</span>
-        <span><b style="color:#666;">Octets modifiés :</b> ${v.offsets.length}</span>
-        <span><b style="color:#666;">Entropie :</b> <span style="color:#0a7;">${v.entropy}/8</span></span>
-        ${v.breakRisk ? `<span style="grid-column:1 / -1;"><b style="color:#666;">Risque de cassure :</b> ${v.breakRisk.level==='high'?'<span style="color:#c00;font-weight:700;">🔴 Élevé</span>':v.breakRisk.level==='low'?'<span style="color:#0a7;font-weight:700;">🟢 Faible</span>':'<span style="color:#e0a800;font-weight:700;">🟡 Inconnu</span>'} <span style="color:#888;font-size:10px;">— ${v.breakRisk.reason}</span></span>` : ''}
-        ${isAES && v.aesIV ? `<span style="grid-column:1 / -1;"><b style="color:#666;">IV :</b> <span style="font-family:monospace;font-size:10px;color:#2b6cb0;">${v.aesIV.substring(0,24)}…</span></span>` : ''}
-        ${isAES && v.aesKey ? `<span style="grid-column:1 / -1;"><b style="color:#666;">Clé :</b> <span style="font-family:monospace;font-size:10px;color:#2b6cb0;">${v.aesKey.substring(0,16)}…</span></span>` : ''}
-        <span style="grid-column:1 / -1;" title="${v.hash}"><b style="color:#666;">SHA-256 :</b> <span style="color:var(--panel-blue);font-family:monospace;">${v.hash.substring(0,20)}…</span></span>
-      </div>
-      <div style="margin-bottom:6px;">
-        <label style="font-size:10px;color:#666;display:block;margin-bottom:2px;">Note :</label>
-        <input value="${(v.note || '').replace(/"/g, '&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Ajouter une note…" style="width:100%;font-size:11px;padding:5px 6px;border:1px solid #ccc;border-radius:3px;box-sizing:border-box;">
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button onclick="showHexDiff(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">🔍 Comparer</button>
-        <button onclick="redownloadHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">⬇️ Télécharger</button>
-        <button onclick="scanHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;">🛡️ Scanner</button>
-        <button onclick="deleteHexVariant(${i})" style="font-size:11px;padding:6px 10px;flex:1;min-width:70px;background:#ffe0e0;border:1px solid #d99;border-radius:4px;color:#c00;">🗑️ Supprimer</button>
+      <div style="padding:10px 11px;">
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:11.5px;color:#333;margin-bottom:9px;">
+          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">🧱</span><b style="color:#666;min-width:70px;">Blocs</b> <span style="color:var(--panel-blue);font-weight:600;">${v.blocks || '—'}</span></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">⚗️</span><b style="color:#666;min-width:70px;">Stratégie</b> <span>${HEX_STRAT_LABELS[v.strategy] || v.strategy}</span></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">🔢</span><b style="color:#666;min-width:70px;">Octets</b> <span>${v.offsets.length}</span></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">📊</span><b style="color:#666;min-width:70px;">Entropie</b> <span style="color:#0a7;">${v.entropy}/8</span></div>
+          <div style="display:flex;align-items:flex-start;gap:6px;"><span style="width:18px;text-align:center;">⚠️</span><b style="color:#666;min-width:70px;">Risque</b> <span>${riskBadge}${v.breakRisk?` <span style="color:#888;font-size:10px;">— ${v.breakRisk.reason}</span>`:''}</span></div>
+          ${isAES && v.aesIV ? `<div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">🔓</span><b style="color:#666;min-width:70px;">IV</b> <span style="font-family:monospace;font-size:10px;color:#2b6cb0;">${v.aesIV.substring(0,24)}…</span></div>` : ''}
+          ${isAES && v.aesKey ? `<div style="display:flex;align-items:center;gap:6px;"><span style="width:18px;text-align:center;">🗝️</span><b style="color:#666;min-width:70px;">Clé</b> <span style="font-family:monospace;font-size:10px;color:#2b6cb0;">${v.aesKey.substring(0,16)}…</span></div>` : ''}
+          <div style="display:flex;align-items:center;gap:6px;" title="${v.hash}"><span style="width:18px;text-align:center;">🔑</span><b style="color:#666;min-width:70px;">SHA-256</b> <span style="color:var(--panel-blue);font-family:monospace;font-size:10px;">${v.hash.substring(0,24)}…</span></div>
+        </div>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:10px;color:#888;display:block;margin-bottom:3px;">📝 Note</label>
+          <input value="${(v.note || '').replace(/"/g, '&quot;')}" onchange="setHexVariantNote(${i},this.value)" placeholder="Ajouter une note…" style="width:100%;font-size:11px;padding:6px 8px;box-sizing:border-box;">
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button onclick="showHexDiff(${i})" style="font-size:10.5px;flex:1;min-width:64px;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🔍 Comparer</button>
+          <button onclick="redownloadHexVariant(${i})" style="font-size:10.5px;flex:1;min-width:64px;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">⬇️ Télécharger</button>
+          <button onclick="scanHexVariant(${i})" style="font-size:10.5px;flex:1;min-width:64px;padding:6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🛡️ Scanner</button>
+        </div>
+        <button onclick="deleteHexVariant(${i})" style="width:100%;margin-top:6px;font-size:11px;background:linear-gradient(180deg,#fff0f0,#ffe0e0);border:1px solid #e0a0a0;color:#c00;">🗑️ Supprimer</button>
       </div>
     </div>`;
   });
@@ -3588,28 +3595,29 @@ function showHexDiff(i){
   const v = hexVariants[i];
   const box = $("hexDiffView");
   const totalMod = v.diffs.reduce((s, d) => s + d.count, 0);
-  let html = `<div style="background:#fff;border:1px solid var(--win-border);border-radius:4px;padding:10px;">
-    <div style="font-weight:600;color:var(--panel-blue);margin-bottom:6px;">🔍 Comparaison — Original vs ${v.name}</div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;font-family:monospace;font-size:11px;">
-      <div><span style="color:#888;">Original :</span> <span style="color:#cc1414;">${v.origHash.substring(0,24)}…</span></div>
-      <div><span style="color:#888;">Modifié :</span> <span style="color:#1a9b3a;">${v.hash.substring(0,24)}…</span></div>
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:11px;">
-      <span>Octets modifiés : <b>${totalMod}</b></span>
-      <span>Plages : <b>${v.diffs.length}</b></span>
-      <span>PE : <b>${v.pe ? '✅ valide' : '❌ invalide'}</b></span>
-      <span>Entropie : <b style="color:#0a7;">${v.entropy}</b></span>
-    </div>
-    <div style="max-height:180px;overflow-y:auto;">
-    <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;">
-      <tr style="background:#d4d0c8;"><th style="padding:3px 6px;text-align:left;">Offset</th><th style="padding:3px 6px;text-align:left;">Original</th><th style="padding:3px 6px;text-align:left;">Variante</th><th style="padding:3px 6px;">Nb</th></tr>`;
+  let html = `<div style="background:#fff;border:1px solid #c5c1b7;border-top-color:#fff;border-left-color:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+    <div style="padding:9px 11px;background:linear-gradient(180deg,#eef1f8,#e2e6f0);border-bottom:1px solid #c8ccd8;font-weight:700;color:var(--panel-blue);font-size:13px;">🔍 Comparaison — Original vs ${v.name}</div>
+    <div style="padding:10px 11px;">
+      <div style="display:flex;flex-direction:column;gap:5px;font-size:11px;margin-bottom:9px;">
+        <div style="display:flex;align-items:center;gap:6px;"><span style="width:16px;">🔑</span><span style="color:#888;min-width:64px;">Original</span> <span style="color:#cc1414;font-family:monospace;font-size:10px;">${v.origHash.substring(0,24)}…</span></div>
+        <div style="display:flex;align-items:center;gap:6px;"><span style="width:16px;">🔑</span><span style="color:#888;min-width:64px;">Modifié</span> <span style="color:#1a9b3a;font-family:monospace;font-size:10px;">${v.hash.substring(0,24)}…</span></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#eef1f8;border:1px solid #c8ccd8;color:#333;">🔢 ${totalMod} octets</span>
+        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#eef1f8;border:1px solid #c8ccd8;color:#333;">📍 ${v.diffs.length} plage${v.diffs.length>1?'s':''}</span>
+        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:${v.pe?'#e0f5e0':'#ffe0e0'};border:1px solid ${v.pe?'#a5d5a5':'#f0b0b0'};color:${v.pe?'#0a7':'#c00'};">${v.pe ? '✅ PE valide' : '❌ PE invalide'}</span>
+        <span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#eef1f8;border:1px solid #c8ccd8;color:#0a7;">📊 ${v.entropy}/8</span>
+      </div>
+      <div style="max-height:180px;overflow:auto;border:1px solid #e0ddd4;border-radius:6px;">
+      <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;">
+        <tr style="background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:#0d3b8c;"><th style="padding:5px 6px;text-align:left;position:sticky;top:0;background:#e0e4ee;">Offset</th><th style="padding:5px 6px;text-align:left;position:sticky;top:0;background:#e0e4ee;">Original</th><th style="padding:5px 6px;text-align:left;position:sticky;top:0;background:#e0e4ee;">Variante</th><th style="padding:5px 6px;position:sticky;top:0;background:#e0e4ee;">Nb</th></tr>`;
   v.diffs.slice(0, 80).forEach(d => {
     const o = Array.from(hexBytes.slice(d.start, Math.min(d.end + 1, d.start + 10))).map(x => x.toString(16).toUpperCase().padStart(2, "0")).join(" ");
     const n = Array.from(v.bytes.slice(d.start, Math.min(d.end + 1, d.start + 10))).map(x => x.toString(16).toUpperCase().padStart(2, "0")).join(" ");
     html += `<tr style="border-bottom:1px solid #eee;"><td style="padding:2px 6px;color:#888;">0x${d.start.toString(16).toUpperCase().padStart(8,"0")}</td><td style="padding:2px 6px;color:#888;">${o}${d.count > 10 ? ' …' : ''}</td><td style="padding:2px 6px;color:#e08a00;font-weight:700;">${n}${d.count > 10 ? ' …' : ''}</td><td style="padding:2px 6px;text-align:center;">${d.count}</td></tr>`;
   });
   if(v.diffs.length > 80) html += `<tr><td colspan="4" style="padding:4px;text-align:center;color:#888;">+${v.diffs.length - 80} plages…</td></tr>`;
-  html += `</table></div></div>`;
+  html += `</table></div></div></div>`;
   box.innerHTML = html;
   box.classList.remove("hidden");
 }
@@ -4938,6 +4946,46 @@ function extractStrings(bytes,minLen,limit){
   if(start>=0&&cur.length>=minLen) runs.push({off:start,s:cur});
   return runs;
 }
+// Chaînes UTF-16LE (infos de version Windows, beaucoup de chaînes système).
+function extractWideStrings(bytes,minLen,limit){
+  const runs=[]; const end=Math.min(bytes.length,limit||bytes.length); let i=0;
+  while(i+1<end){
+    if(bytes[i]>=32&&bytes[i]<127&&bytes[i+1]===0){
+      const start=i; let cur="";
+      while(i+1<end && bytes[i]>=32 && bytes[i]<127 && bytes[i+1]===0){ cur+=String.fromCharCode(bytes[i]); i+=2; }
+      if(cur.length>=minLen) runs.push({off:start,s:cur});
+    } else i++;
+  }
+  return runs;
+}
+// Chaînes notables (côté ANALYSE) : noms de fichiers, chemins, registre, commandes,
+// infos de version (nom produit/éditeur), mots-clés. Informatif — pas un verdict.
+function extractNotableStrings(bytes){
+  const LIM=Math.min(bytes.length,1<<24);
+  const aruns=extractStrings(bytes,4,LIM).map(r=>({off:r.off,s:r.s,wide:false}));
+  const wruns=extractWideStrings(bytes,2,LIM).map(r=>({off:r.off,s:r.s,wide:true}));
+  const cats={version:[],files:[],paths:[],registry:[],commands:[],keywords:[]};
+  const seen=new Set();
+  const add=(cat,s,off)=>{ const k=cat+"|"+s.toLowerCase(); if(seen.has(k)||cats[cat].length>=40) return; seen.add(k); cats[cat].push({s,off}); };
+  const VF=["CompanyName","ProductName","OriginalFilename","FileDescription","InternalName","LegalCopyright","ProductVersion","FileVersion","Comments"];
+  for(let i=0;i<wruns.length-1;i++){
+    if(VF.includes(wruns[i].s)){ const val=wruns[i+1].s;
+      if(val && VF.indexOf(val)<0 && val.length>=2 && val.length<=60) add("version",wruns[i].s+" = "+val,wruns[i+1].off); }
+  }
+  const reFile=/[\w\-]{1,50}\.(exe|dll|sys|drv|bat|cmd|ps1|psm1|vbs|js|jse|wsf|scr|jar|hta|lnk|cpl|ocx|msi)\b/i;
+  const rePath=/(?:[A-Za-z]:\\|%[A-Za-z0-9_]+%|\\\\[A-Za-z0-9_.$-]+\\)[^\s"'<>|)*?]{1,90}/;
+  const reReg=/(?:HKEY_[A-Z_]+|HKLM|HKCU|HKCR|HKU)\\[^\s"'<>|)]{2,90}/i;
+  const LOL=["cmd.exe","powershell","pwsh ","rundll32","regsvr32","schtasks","wscript","cscript","mshta","certutil","bitsadmin","netsh ","bcdedit","vssadmin","wmic ","reg add","reg delete","taskkill","sc create","cipher /w","wevtutil","attrib +h","icacls"];
+  const KW=["keylog","inject","payload","backdoor","botnet","ransom","bitcoin","wallet","beacon","mimikatz","shellcode","persistence","screenshot","clipboard","credential","stealer","dropper","anti-vm","sandbox","obfuscat"];
+  for(const r of aruns.concat(wruns)){ const s=r.s,ls=s.toLowerCase(); let m; const mul=r.wide?2:1;
+    if((m=reFile.exec(s))) add("files",m[0],r.off+(m.index||0)*mul);
+    if((m=rePath.exec(s))) add("paths",m[0].slice(0,90),r.off+(m.index||0)*mul);
+    if((m=reReg.exec(s))) add("registry",m[0].slice(0,90),r.off+(m.index||0)*mul);
+    for(const c of LOL){ const idx=ls.indexOf(c); if(idx>=0){ add("commands",s.slice(idx,idx+40),r.off+idx*mul); break; } }
+    for(const k of KW){ if(ls.includes(k)){ add("keywords",s.slice(0,60),r.off); break; } }
+  }
+  return cats;
+}
 function detectNetworkIOCs(bytes){
   const HEAVY=Math.min(bytes.length,1<<24);
   const runs=extractStrings(bytes,4,HEAVY);
@@ -5113,6 +5161,11 @@ function analyzeDefense(bytes, filename){
   let net={ipv4:[],ipv6:[],urls:[],domains:[],decIps:[],b64:[],hexIps:[],dyndns:[],sockaddr:[],xorUrls:[],entZones:[]};
   try{ net=detectNetworkIOCs(bytes); }catch(e){ console.warn('net:',e); }
   const pubIps=net.ipv4.filter(x=>x.cls==="publique");
+  // Chaînes notables (noms de fichiers, chemins, registre, commandes, infos de version)
+  let strs={version:[],files:[],paths:[],registry:[],commands:[],keywords:[]};
+  try{ strs=extractNotableStrings(bytes); }catch(e){ console.warn('strs:',e); }
+  if(strs.commands.length) alerts.push({level:"med",text:`Commande(s) système en chaîne : <b>${strs.commands.slice(0,3).map(x=>x.s).join(", ")}</b>${strs.commands.length>3?" …":""}`});
+  if(strs.version.length) alerts.push({level:"ok",text:`Infos de version : ${strs.version.slice(0,2).map(x=>x.s).join(" · ")}`});
   if(net.xorUrls.length) alerts.push({level:"high",text:`URL(s) masquée(s) par XOR révélée(s) : <b>${net.xorUrls.length}</b>`});
   if(net.dyndns.length) alerts.push({level:"high",text:`Domaine(s) DNS dynamique / No-IP : <b>${net.dyndns.map(x=>x.d).slice(0,3).join(", ")}</b>${net.dyndns.length>3?" …":""}`});
   if(net.sockaddr.length) alerts.push({level:"med",text:`Structure(s) réseau binaire (sockaddr_in) : <b>${net.sockaddr.length}</b>`});
@@ -5297,6 +5350,7 @@ function analyzeDefense(bytes, filename){
   if(net.b64.length||net.decIps.length||net.hexIps.length) addS(10,`IP/URL encodée`);
   if(net.sockaddr.length) addS(8,`sockaddr_in binaire (${net.sockaddr.length})`);
   if(pubIps.length||net.domains.length) addS(6,`Indicateurs réseau en clair`);
+  if(strs.commands.length) addS(8,`Commandes système en chaîne (${strs.commands.length})`);
   if(algoKeys.length>0) addS(Math.min(20,algoKeys.length*8),`Constantes crypto (${algoKeys.length})`);
   if(cryptoLibs.length>0) addS(5,`Import crypto`);
   const hEntSecs=sections.filter(s=>s.ent>7.0);
@@ -5489,6 +5543,22 @@ function analyzeDefense(bytes, filename){
     html+=`</div>`;
   }
 
+  if(strs && (strs.version.length||strs.files.length||strs.paths.length||strs.registry.length||strs.commands.length||strs.keywords.length)){
+    const hxs=(n)=>"0x"+(n>>>0).toString(16).toUpperCase();
+    const escS=(s)=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const chip=(o)=>`<span onclick="defenseJumpToHex(${o.off})" title="Ouvrir dans l'éditeur Hex" style="cursor:pointer;display:inline-block;font-family:monospace;font-size:11px;background:#f3eefb;border:1px solid #ddd0ee;border-radius:4px;padding:0 5px;margin:2px 3px 0 0;">${escS(o.s)} <span style="color:#7a4bd0;text-decoration:underline;">@${hxs(o.off)}</span></span>`;
+    const sec=(label,arr,strong)=>{ if(!arr.length) return ""; return `<div style="margin-bottom:7px;"><div style="font-weight:600;font-size:12px;color:${strong?"#a1281f":"#333"};">${label} (${arr.length})</div><div style="margin-top:2px;">${arr.slice(0,20).map(chip).join("")}${arr.length>20?`<span style="color:#999;font-size:11px;"> +${arr.length-20}</span>`:""}</div></div>`; };
+    html+=`<div style="margin-bottom:12px;padding:10px 12px;background:#fff;border:1px solid #c3b3dd;border-radius:6px;">
+      <div style="font-weight:700;color:#5f2fa0;font-size:13px;margin-bottom:6px;">🔤 Chaînes notables</div>`;
+    html+=sec("Infos de version (nom produit / éditeur / fichier)",strs.version);
+    html+=sec("⚑ Commandes système",strs.commands,true);
+    html+=sec("Clés de registre",strs.registry);
+    html+=sec("Chemins de fichiers",strs.paths);
+    html+=sec("Noms de fichiers",strs.files);
+    html+=sec("Mots-clés notables",strs.keywords);
+    html+=`<div style="font-size:10.5px;color:#888;margin-top:5px;border-top:1px dashed #e0e0e0;padding-top:5px;">Chaînes lisibles extraites du fichier (ASCII + UTF-16), chacune cliquable vers l'éditeur hex. <b>Informatif</b> : une chaîne n'est pas une preuve — un mot comme « encrypt » ou une commande peut être parfaitement légitime. C'est un point de départ d'analyse, pas un verdict.</div></div>`;
+  }
+
   if(zones.length){
     const hxz=(n)=>"0x"+(n>>>0).toString(16).toUpperCase();
     html+=`<div style="margin-bottom:12px;padding:10px 12px;background:#fff;border:1px solid #b9c6dc;border-radius:6px;">
@@ -5524,7 +5594,7 @@ function analyzeDefense(bytes, filename){
   if(sections.length>0){
     html+=`<div style="font-weight:600;color:var(--panel-blue);margin-bottom:6px;font-size:12px;">Sections (${sections.length})</div>`;
     html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px;">`;
-    html+=`<tr style="background:#d4d0c8;"><th style="padding:4px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">Perms</th><th style="padding:4px 6px;">Taille</th></tr>`;
+    html+=`<tr style="background:linear-gradient(180deg,#e8eaf2,#d5d9e8);color:#0d3b8c;"><th style="padding:5px 6px;text-align:left;">Nom</th><th style="padding:4px 6px;">Entropie</th><th style="padding:4px 6px;">Perms</th><th style="padding:4px 6px;">Taille</th></tr>`;
     sections.forEach(s=>{
       const entColor=s.ent>7.0?"#c00":s.ent>6.5?"#e0a800":"#0a7";
       const perms=(s.read?"R":"-")+(s.write?"W":"-")+(s.exec?"X":"-");
