@@ -703,12 +703,9 @@
               <optgroup label="── Avancé ──">
                 <option value="entropy">Entropie contrôlée</option>
               </optgroup>
-              <!-- ✅ AJOUT : Algorithmes de chiffrement 100% réels -->
+              <!-- 🔐 NOUVEAU AES-256-GCM RÉEL -->
               <optgroup label="── 🔐 Chiffrement (100% réel) ──">
-                <option value="aes256">🔐 AES-256 — Standard NIST (14 rounds)</option>
-                <option value="chacha20">🔐 ChaCha20 — 20 rounds ARX</option>
-                <option value="xchacha20">🔐 XChaCha20 — HChaCha20 + ChaCha20</option>
-                <option value="salsa20">🔐 Salsa20 — 20 rounds eStream</option>
+                <option value="aes256">🔐 AES-256-GCM — Standard NIST (authentifié)</option>
               </optgroup>
             </select>
             <div id="hexStratDesc" style="font-size:10px;color:#888;margin-top:3px;"></div>
@@ -810,6 +807,162 @@
 </div>
 
 <script>
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VRAI AES-256-GCM — Web Crypto API (remplace l'ancien AES simulé)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const AES_KEY_SIZE = 256;
+const AES_IV_SIZE = 12;       // 96 bits (recommandé pour GCM)
+const AES_TAG_LENGTH = 128;   // 128 bits
+
+// Générer une clé AES-256 aléatoire
+async function generateAES256Key() {
+    try {
+        return await crypto.subtle.generateKey(
+            {
+                name: "AES-GCM",
+                length: AES_KEY_SIZE
+            },
+            true,  // extractable
+            ["encrypt", "decrypt"]
+        );
+    } catch (error) {
+        console.error("Erreur lors de la génération de la clé:", error);
+        throw error;
+    }
+}
+
+// Importer une clé depuis une chaîne hexadécimale
+async function importAES256Key(hexKey) {
+    try {
+        const cleanHex = hexKey.replace(/[^0-9a-fA-F]/g, '');
+        if (cleanHex.length !== 64) {
+            throw new Error(`Clé AES-256 invalide: ${cleanHex.length} caractères au lieu de 64`);
+        }
+        const rawKey = hexToBytesAES(cleanHex);
+        return await crypto.subtle.importKey(
+            "raw",
+            rawKey,
+            { name: "AES-GCM" },
+            true,
+            ["encrypt", "decrypt"]
+        );
+    } catch (error) {
+        console.error("Erreur lors de l'import de la clé:", error);
+        throw error;
+    }
+}
+
+// Chiffrer des données avec AES-256-GCM
+async function encryptAES256GCM(key, data) {
+    try {
+        const iv = crypto.getRandomValues(new Uint8Array(AES_IV_SIZE));
+        const encrypted = await crypto.subtle.encrypt(
+            {
+                name: "AES-GCM",
+                iv: iv,
+                tagLength: AES_TAG_LENGTH,
+                additionalData: new Uint8Array(0)
+            },
+            key,
+            data
+        );
+        return {
+            iv: iv,
+            ciphertext: new Uint8Array(encrypted)
+        };
+    } catch (error) {
+        console.error("Erreur lors du chiffrement:", error);
+        throw error;
+    }
+}
+
+// Déchiffrer des données avec AES-256-GCM
+async function decryptAES256GCM(key, iv, ciphertext) {
+    try {
+        const decrypted = await crypto.subtle.decrypt(
+            {
+                name: "AES-GCM",
+                iv: iv,
+                tagLength: AES_TAG_LENGTH,
+                additionalData: new Uint8Array(0)
+            },
+            key,
+            ciphertext
+        );
+        return new Uint8Array(decrypted);
+    } catch (error) {
+        console.error("Erreur lors du déchiffrement:", error);
+        throw error;
+    }
+}
+
+// Convertir hexadécimal en Uint8Array
+function hexToBytesAES(hex) {
+    const cleanHex = hex.replace(/[^0-9a-fA-F]/g, '');
+    if (cleanHex.length % 2 !== 0) {
+        throw new Error("Longueur hexadécimale invalide");
+    }
+    const bytes = new Uint8Array(cleanHex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(cleanHex.substring(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
+}
+
+// Convertir Uint8Array en hexadécimal
+function bytesToHexAES(bytes) {
+    return Array.from(bytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+// Exporter une clé en format hexadécimal
+async function exportAES256Key(key) {
+    try {
+        const rawKey = await crypto.subtle.exportKey("raw", key);
+        return bytesToHexAES(new Uint8Array(rawKey));
+    } catch (error) {
+        console.error("Erreur lors de l'export de la clé:", error);
+        throw error;
+    }
+}
+
+// Chiffrer des octets spécifiques avec AES-256-GCM
+async function encryptBytesWithAES256(bytes, offsets, keyHex) {
+    try {
+        const dataToEncrypt = new Uint8Array(offsets.length);
+        for (let i = 0; i < offsets.length; i++) {
+            dataToEncrypt[i] = bytes[offsets[i]];
+        }
+        
+        const key = await importAES256Key(keyHex);
+        const encrypted = await encryptAES256GCM(key, dataToEncrypt);
+        
+        const result = new Uint8Array(bytes);
+        const ciphertextWithoutTag = encrypted.ciphertext.slice(0, -16);
+        
+        for (let i = 0; i < Math.min(offsets.length, ciphertextWithoutTag.length); i++) {
+            result[offsets[i]] = ciphertextWithoutTag[i];
+        }
+        
+        return {
+            result: result,
+            iv: encrypted.iv,
+            tag: encrypted.ciphertext.slice(-16),
+            ciphertext: encrypted.ciphertext
+        };
+    } catch (error) {
+        console.error("Erreur lors du chiffrement des octets:", error);
+        throw error;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  FIN AES-256-GCM
+// ═══════════════════════════════════════════════════════════════════════════════
+
+
 const $ = id => document.getElementById(id);
 
 // ─── État global ─────────────────────────────────────────────────────────────
@@ -817,10 +970,10 @@ let selectedFile = null;
 let peBytes = null, peOrigBytes = null, peFileNameStr = "", peOffsets = {};
 let hexBytes = null, hexOrigBytes = null, hexFileNameStr = "";
 let hexSelectedOffset = null;
-let hexModHighlight = null; // octet surligné en jaune par l'outil de suggestions
-let hexFindHighlight = null; // {start, length} plage surlignée par la recherche
-let hexSigHighlights = []; // signatures clés (MZ, PE) surlignées en permanence
-let history = [];   // [{iter, name, blob, sha256, mods}]
+let hexModHighlight = null;
+let hexFindHighlight = null;
+let hexSigHighlights = [];
+let history = [];
 let startTime = null, timerInt = null;
 
 // ─── Onglets ──────────────────────────────────────────────────────────────────
@@ -1149,9 +1302,7 @@ function renderResult(data){
   $("engineList").innerHTML=engines.filter(e=>e.category==="malicious"||e.category==="suspicious").concat(engines.filter(e=>e.category!=="malicious"&&e.category!=="suspicious")).map(e=>{
     const slug=e.engine.toLowerCase().replace(/[^a-z0-9]/g,"");
     const initial=e.engine.charAt(0).toUpperCase();
-    // Couleur de la pastille de secours selon le résultat
     const badgeColor=e.category==="malicious"?"#d02020":e.category==="suspicious"?"#d07800":"#1a8a3a";
-    // Logo depuis le dossier logos/ (que tu remplis toi-même) ; si absent, pastille avec initiale
     const logo=`<img src="logos/${slug}.png" alt="" style="width:18px;height:18px;border-radius:4px;object-fit:contain;vertical-align:middle;" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${initial}',style:'display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:${badgeColor};color:#fff;font-size:11px;font-weight:700;vertical-align:middle;'}))">`;
     const resultClass=e.category==="malicious"?"malicious":e.category==="suspicious"?"":"clean";
     return `<div><span style="display:inline-flex;align-items:center;gap:7px;">${logo}${e.engine}</span><span class="${resultClass}">${e.result||e.category}</span></div>`;
@@ -1224,23 +1375,18 @@ function detectOverlay(b,secs){
   if(mx>0 && b.length>mx+16) return {offset:mx,size:b.length-mx};
   return null;
 }
-// Lecture côté ANALYSE : qu'est-ce qu'un analyste regarde face à un overlay.
-// Type de données (signature, archive, PE ajouté…), entropie, part du fichier, interprétation.
 function renderOverlayAnalysis(b,ov,ddb){
   const esc=(x)=>String(x);
   const hex=(n)=>"0x"+n.toString(16).toUpperCase();
   const pct=(ov.size/b.length*100);
-  // Entropie sur un échantillon (jusqu'à 1 Mio) pour rester rapide sur gros overlays.
   const sampleEnd=Math.min(ov.offset+(1<<20), b.length);
   const ent=hexEntropy(b.slice(ov.offset,sampleEnd));
   const sampled=(sampleEnd-ov.offset)<ov.size;
-  // Est-ce la signature Authenticode ? (répertoire de sécurité)
   let isSig=false;
   if(typeof ddb==='number'){
     const sOff=readU32LE(b,ddb+32), sSz=readU32LE(b,ddb+36);
     if(sOff && sOff>=ov.offset && sOff<ov.offset+ov.size) isSig=true;
   }
-  // Reconnaissance de type par octets de tête.
   const o=ov.offset, at=(i)=>b[o+i];
   const ascii=(i,n)=>{let s='';for(let k=0;k<n;k++)s+=String.fromCharCode(b[o+i+k]||0);return s;};
   let kind=null;
@@ -1252,7 +1398,6 @@ function renderOverlayAnalysis(b,ov,ddb){
   else if(ascii(0,2)==="MZ") kind={label:"Exécutable PE ajouté (MZ)",tone:"warn",note:"Un second binaire est accolé — courant sur droppers/bundlers, mais aussi sur des outils légitimes."};
   else if(ascii(0,7)==="!<arch>") kind={label:"Archive ar",tone:"info",note:null};
   else kind={label:"Données non identifiées",tone:"warn",note:"Type inconnu — le contenu réel demande une inspection en hex."};
-  // Interprétation de l'entropie.
   let entTxt,entTone;
   if(ent>=7.5){entTxt="très élevée — données compressées ou chiffrées";entTone="warn";}
   else if(ent>=6.5){entTxt="élevée — probablement compressé/structuré";entTone="warn";}
@@ -1518,16 +1663,11 @@ function applyPEChanges(){
 }
 
 // ─── Writer d'icône partagé ───────────────────────────────────────────────
-// renderAt(size) doit renvoyer un <canvas> size×size déjà dessiné (fond
-// transparent autorisé, l'alpha est repris). Écrit les pixels BGRA en place
-// dans la ressource RT_ICON, à la taille de l'icône d'origine du PE.
-// Renvoie true si l'écriture a réussi, false sinon.
 function writeIconIntoPE(renderAt){
   if(!peBytes||!peResources||!peResources.icons){alert("Charge d'abord un PE contenant une icône.");return false;}
   const iOff=rvaToOff(peResources.icons.rva,peSectionsList);
   if(iOff<0){alert("Offset icône introuvable.");return false;}
   const iSize=peResources.icons.size;
-  // Localise le BITMAPINFOHEADER (0x28 = 40) et lit la largeur d'origine.
   let origW=32,origHOff=iOff;
   for(let i=iOff;i<iOff+Math.min(iSize,200)&&i<peBytes.length-4;i++){
     if(peBytes[i]===0x28&&peBytes[i+1]===0&&peBytes[i+2]===0&&peBytes[i+3]===0){
@@ -1545,7 +1685,6 @@ function writeIconIntoPE(renderAt){
     alert(`Image trop grande pour cette ressource.\n\nEspace disponible : ${iSize} octets\nRequis : ${needed} octets\n\nL'icône cible fait ${origW}×${origW}px.`);
     return false;
   }
-  // Réécrit le BITMAPINFOHEADER (32 bits/pixel) puis les pixels BGRA bottom-up.
   let o=origHOff;
   writeU32LE(b,o,40);writeU32LE(b,o+4,origW);writeU32LE(b,o+8,origW*2);
   writeU16LE(b,o+12,1);writeU16LE(b,o+14,32);writeU32LE(b,o+16,0);
@@ -1584,7 +1723,6 @@ $("peReplaceIconInput").addEventListener("change",()=>{
 });
 
 // ─── Pack de 100 icônes originales générées (10 formes × 10 couleurs) ────────
-// Chaque icône est dessinée par code, donc nette à n'importe quelle taille.
 const ICONPACK_COLORS=[
   {name:"rouge",   fill:"#e2453a",dark:"#a82c23"},
   {name:"orange",  fill:"#f08a24",dark:"#b8611a"},
@@ -1654,7 +1792,7 @@ function buildIconPack(){
       cell.className="iconpack-cell";
       cell.title=`${shape} ${col.name}`;
       const cv=document.createElement("canvas");
-      cv.width=64;cv.height=64;               // rendu net pour la vignette
+      cv.width=64;cv.height=64;
       drawPackShape(cv.getContext('2d'),64,shape,col);
       cell.appendChild(cv);
       const _shape=shape,_col=col;
@@ -1681,12 +1819,8 @@ $("peIconPackBtn").addEventListener("click",()=>{
   $("peIconPackBtn").textContent=show?"🎨 Masquer le pack":"🎨 Pack d'icônes (100)";
 });
 
-// ─── Gestionnaire de tailles d'icônes (façon Resource Hacker, réécriture sûre) ─
-// Lit RT_GROUP_ICON (type 14) → liste toutes les tailles du groupe + leur RT_ICON.
-// La suppression réécrit le GRPICONDIR sur place : aucun octet déplacé.
-let peIconGroup=null;   // {off, count, dataEntryOff, entries:[{w,h,bpp,id,entryOff,imgRva,imgSize}]}
-
-// Parcourt l'arbre .rsrc et renvoie toutes les feuilles d'un type donné.
+// ─── Gestionnaire de tailles d'icônes ────────────────────────────────────
+let peIconGroup=null;
 function iconLeavesForType(b,secs,ddb,tid){
   const rsrcRVA=readU32LE(b,ddb+16); if(!rsrcRVA) return [];
   const rsrcOff=rvaToOff(rsrcRVA,secs); if(rsrcOff<0) return [];
@@ -1718,7 +1852,7 @@ function parseIconGroup(){
   const groups=iconLeavesForType(b,peSectionsList,peDataDirBase,14);
   const images=iconLeavesForType(b,peSectionsList,peDataDirBase,3);
   if(!groups.length) return null;
-  groups.sort((a,z)=>a.resId-z.resId);           // le shell utilise le groupe d'ID le plus bas
+  groups.sort((a,z)=>a.resId-z.resId);
   const g=groups[0];
   const gOff=rvaToOff(g.rva,peSectionsList); if(gOff<0) return null;
   const count=readU16LE(b,gOff+4);
@@ -1748,7 +1882,6 @@ function renderIconManager(){
     const cb=document.createElement("input");
     cb.type="checkbox"; cb.checked=true; cb.dataset.idx=i;
     cb.addEventListener("change",()=>row.classList.toggle("dropped",!cb.checked));
-    // aperçu de CETTE taille
     let canvas=null;
     if(e.imgRva){ const io=rvaToOff(e.imgRva,peSectionsList); if(io>=0) canvas=drawIconOnCanvas(peBytes,io,e.imgSize); }
     if(!canvas){ canvas=document.createElement("canvas"); canvas.width=canvas.height=32; }
@@ -1761,32 +1894,29 @@ function renderIconManager(){
   note.textContent=g.nGroups>1
     ? `${g.entries.length} tailles · ${g.nGroups} groupes d'icônes présents (seul le principal est édité ici).`
     : `${g.entries.length} tailles dans le groupe.`;
-  // Bouton "garder seulement 16×16" : actif seulement si un 16×16 existe
   const has16=g.entries.some(e=>e.w===16&&e.h===16);
   $("peIconKeep16").disabled=!has16;
   $("peIconKeep16").title=has16?"":"Ce fichier n'a pas de taille 16×16";
   try{ updateCompactHint(); }catch(e){ console.warn('compactHint:',e); }
 }
 
-// Réécrit le GRPICONDIR pour ne garder que les entrées cochées. Sur place.
 function applyIconKeep(keepIdx){
   const g=peIconGroup; if(!g) return;
   const kept=g.entries.filter((e,i)=>keepIdx.has(i));
   if(kept.length===0){ alert("Garde au moins une taille — impossible de tout supprimer."); return; }
   if(kept.length===g.entries.length){ alert("Aucune taille décochée : rien à supprimer."); return; }
   const b=peBytes;
-  // Recopie à l'identique les entrées conservées (14 octets chacune), compactées.
   const snaps=kept.map(e=>b.slice(e.entryOff,e.entryOff+14));
-  writeU16LE(b,g.off+4,kept.length);              // idCount
+  writeU16LE(b,g.off+4,kept.length);
   let p=g.off+6;
   for(const snap of snaps){ b.set(snap,p); p+=14; }
-  const oldEnd=g.off+6+g.count*14;                // zéro sur l'ancienne queue
+  const oldEnd=g.off+6+g.count*14;
   for(let i=p;i<oldEnd;i++) b[i]=0;
-  writeU32LE(b,g.dataEntryOff+4,6+kept.length*14);// Size du data-entry du groupe
+  writeU32LE(b,g.dataEntryOff+4,6+kept.length*14);
   const removed=g.entries.length-kept.length;
   log(`${removed} taille(s) d'icône retirée(s) du groupe · ${kept.length} conservée(s) : ${kept.map(e=>e.w+'×'+e.h).join(', ')}`);
   if(typeof toast==="function") toast(`${removed} taille(s) supprimée(s) ✅`);
-  parsePE();                                       // re-parse + re-render
+  parsePE();
 }
 
 $("peIconMgrBtn").addEventListener("click",()=>{
@@ -1810,14 +1940,7 @@ $("peIconApplyKeep").addEventListener("click",()=>{
   applyIconKeep(keep);
 });
 
-// ═══ RÉDUCTION PHYSIQUE DU .rsrc — reconstruction complète, cas sûr uniquement ═══
-// Retire les images d'icônes devenues orphelines (référencées par aucun groupe),
-// puis ré-sérialise entièrement la section .rsrc pour récupérer la place.
-// Verrouillé : uniquement si .rsrc est la DERNIÈRE section et sans overlay/signature
-// après elle — dans ce cas rien d'autre ne bouge, donc zéro risque de corruption.
 function alignUp(n,a){ return Math.ceil(n/a)*a; }
-
-// Lecture COMPLÈTE de l'arbre de ressources (tous types/niveaux) + copie des blobs.
 function parseRsrcTreeFull(b,rsrcOff,secs){
   const readEntries=(off)=>{
     const nNamed=readU16LE(b,off+12),nId=readU16LE(b,off+14);
@@ -1850,8 +1973,6 @@ function parseRsrcTreeFull(b,rsrcOff,secs){
   };
   return buildDir(rsrcOff);
 }
-
-// IDs d'icônes référencés par au moins un RT_GROUP_ICON.
 function collectReferencedIconIds(root){
   const ref=new Set();
   const t14=root.entries.find(e=>!e.isName&&e.id===14&&e.child.dir);
@@ -1862,22 +1983,18 @@ function collectReferencedIconIds(root){
   walk(t14.child.dir);
   return ref;
 }
-
-// Supprime du modèle les RT_ICON (type 3) non référencés. Renvoie le nombre retiré.
 function dropOrphanIcons(root,refIds){
   const t3=root.entries.find(e=>!e.isName&&e.id===3&&e.child.dir);
   if(!t3) return 0;
   const dir=t3.child.dir; let removed=0;
   dir.entries=dir.entries.filter(e=>{
-    if(e.isName) return true;                    // icône nommée : on garde par prudence
+    if(e.isName) return true;
     if(refIds.has(e.id)) return true;
     removed++; return false;
   });
   if(dir.entries.length===0) root.entries=root.entries.filter(e=>e!==t3);
   return removed;
 }
-
-// Ré-sérialise l'arbre en une nouvelle section .rsrc (offsets internes + RVA recalculés).
 function serializeRsrc(root,rsrcRVA){
   const dirs=[]; (function cd(n){ dirs.push(n); for(const e of n.entries) if(e.child.dir) cd(e.child.dir); })(root);
   const leaves=[]; (function cl(n){ for(const e of n.entries){ if(e.child.dir) cl(e.child.dir); else leaves.push(e.child.leaf); } })(root);
@@ -1913,8 +2030,6 @@ function serializeRsrc(root,rsrcRVA){
   for(const lf of leaves){ out.set(lf.blob,lf._blobOff); }
   return out;
 }
-
-// Analyse : combien d'orphelines + est-ce réductible sans risque ?
 function analyzeOrphanIcons(){
   const b=peBytes;
   if(!b||!peSectionsList||typeof peDataDirBase!=='number') return null;
@@ -1938,7 +2053,6 @@ function analyzeOrphanIcons(){
   }
   return {orphanCount,orphanBytes,blocked};
 }
-
 function updateCompactHint(){
   const btn=$("peIconCompact"),note=$("peIconCompactNote"); if(!btn) return;
   const info=analyzeOrphanIcons();
@@ -1955,8 +2069,6 @@ function updateCompactHint(){
   btn.disabled=false;
   note.innerHTML=`${info.orphanCount} image(s) orpheline(s) · ~${(info.orphanBytes/1024).toFixed(1)} Ko récupérables. <span style="color:#0a7;">Réduction sûre possible ✅</span>`;
 }
-
-// Validation autonome (ne touche ni UI ni globals) — sert de garde-fou avant commit.
 function quickValidatePE(nb){
   try{
     if(nb[0]!==0x4D||nb[1]!==0x5A) return false;
@@ -1979,7 +2091,6 @@ function quickValidatePE(nb){
     return true;
   }catch(e){ return false; }
 }
-
 function compactRsrcRemoveOrphanIcons(){
   const b=peBytes;
   const info=analyzeOrphanIcons();
@@ -2010,15 +2121,11 @@ function compactRsrcRemoveOrphanIcons(){
   const nb=new Uint8Array(rsrcSec.rawOffset+newRaw);
   nb.set(b.slice(0,rsrcSec.rawOffset),0);
   nb.set(serialized,rsrcSec.rawOffset);
-  // En-tête de section .rsrc
-  writeU32LE(nb,rsrcSec.headerOff+8,serialized.length);      // VirtualSize
-  writeU32LE(nb,rsrcSec.headerOff+16,newRaw);                // SizeOfRawData
-  // Data directory (Ressources) : RVA (au cas où la racine n'était pas en tête) + Size
+  writeU32LE(nb,rsrcSec.headerOff+8,serialized.length);
+  writeU32LE(nb,rsrcSec.headerOff+16,newRaw);
   writeU32LE(nb,peDataDirBase+16,rsrcSec.va);
   writeU32LE(nb,peDataDirBase+20,serialized.length);
-  // SizeOfImage
   writeU32LE(nb,OPT+56,alignUp(rsrcSec.va+serialized.length,secAlign));
-  // Checksum PE (même algo que l'export)
   writeU32LE(nb,OPT+64,0);
   let sum=0,carry=0;
   for(let i=0;i<nb.length-1;i+=2){ sum+=((nb[i+1]<<8)|nb[i])+carry; carry=sum>>>16; sum&=0xffff; }
@@ -2474,9 +2581,7 @@ $("hxRecalcChecksum").addEventListener("click",hxRecalcChecksum);
 
 let hexPage=0;
 const HEX_PAGE_ROWS=512;
-// 8 octets par ligne sur mobile (évite le défilement horizontal), 16 sur grand écran
 let HEX_COLS = (window.innerWidth <= 520) ? 8 : 16;
-// Réajuster si l'orientation/taille change
 window.addEventListener("resize", ()=>{
   const newCols = (window.innerWidth <= 520) ? 8 : 16;
   if(newCols !== HEX_COLS){ HEX_COLS = newCols; if(hexBytes && typeof renderHex==="function") renderHex(); }
@@ -2493,7 +2598,6 @@ function renderHex(){
   if(hexPage>=totalPages) hexPage=Math.max(0,totalPages-1);
   const startByte=hexPage*pageBytes;
   const endByte=Math.min(startByte+pageBytes,b.length);
-  // En-tête de colonnes numérotées (0 1 2 ... F) — style éditeur hex classique
   let headHex="";
   for(let c=0;c<COLS;c++){ headHex+=`<td class="hex-colhead">${c.toString(16).toUpperCase()}</td>`; }
   let html=`<tr class="hex-header-row"><td class="hex-addr hex-colhead">Offset</td>${headHex}<td class="hex-colhead">ASCII</td></tr>`;
@@ -2519,7 +2623,6 @@ function renderHex(){
     const check=hexSelectMode?`<input type="checkbox" class="hex-linecheck" data-row="${off}" ${rowSel?'checked':''}>`:'';
     const sectionCls=inSection?`hex-row-section-${hexSectionRange.risk||'med'}`:'';
     const rowClasses=[rowSel?'hex-row-sel':'',sectionCls].filter(Boolean).join(' ');
-    // Flèche sur l'offset si l'octet suggéré est sur cette ligne
     const hasArrow=(typeof hexModHighlight!=="undefined"&&hexModHighlight!==null&&hexModHighlight>=off&&hexModHighlight<off+COLS);
     const addrCls=hasArrow?"hex-addr mod-arrow":"hex-addr";
     const arrowMark=hasArrow?"➡️":"";
@@ -2534,12 +2637,10 @@ function renderHex(){
       $("hexValueInput").value=val.toString(16).toUpperCase().padStart(2,"0");
       $("hexTable").querySelectorAll(".hex-cell").forEach(c=>c.classList.remove("selected"));
       cell.classList.add("selected");
-      // Afficher l'info de l'octet selon sa zone (code / données / en-tête)
       const info=$("hexByteInfo");
       if(info){
         info.style.display="block";
         const off=hexSelectedOffset;
-        // Déterminer la zone
         let zoneInfo="";
         try{
           if(hexBytes[0]===0x4D&&hexBytes[1]===0x5A){
@@ -2621,12 +2722,11 @@ function hexEntropy(bytes){
   return h;
 }
 
-// Carte d'entropie par section (côté ANALYSE) : repère d'un coup d'œil une section packée.
 function sectionEntropyColor(e){
-  if(e>=7.2) return "#e2453a";   // rouge : très haute → compressé/chiffré
-  if(e>=6.5) return "#e8730f";   // orange
-  if(e>=5.0) return "#f0a020";   // ambre
-  return "#3aa84f";              // vert : normal
+  if(e>=7.2) return "#e2453a";
+  if(e>=6.5) return "#e8730f";
+  if(e>=5.0) return "#f0a020";
+  return "#3aa84f";
 }
 function renderSectionEntropy(b,secs){
   const box=$("peSectionEntropy"); if(!box) return;
@@ -2670,7 +2770,6 @@ function updateHexSelInfo(){
   if(stats){
     const selBytes=new Uint8Array(offs.map(o=>hexBytes[o]));
     const ent=hexEntropy(selBytes);
-    // Prévisualisation : évaluer le risque de la zone sélectionnée
     let riskHtml="";
     if(typeof evaluateBreakRisk==="function"){
       const risk=evaluateBreakRisk(hexBytes, offs);
@@ -2683,227 +2782,7 @@ function updateHexSelInfo(){
   btn.disabled=false;
 }
 
-// ─── ALGORITHMES DE CHIFFREMENT 100% RÉELS ET COMPLETS ──────────────────────
-
-// ─── 1. AES-256 COMPLET ──────────────────────────────────────────────────────
-function applyAES256(byte, key, round) {
-  const sbox = [0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
-    0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
-    0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
-    0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
-    0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
-    0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
-    0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
-    0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
-    0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
-    0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
-    0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
-    0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
-    0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
-    0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
-    0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
-    0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16];
-  
-  const rcon = [0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36,0x6c,0xd8,0xab,0x4d,0x9a,0x2f,
-                0x5e,0xbc,0x63,0xc6,0x97,0x35,0x6a,0xd4,0xb3,0x7d,0xfa,0xef,0xc5,0x91,0x39,0x72,
-                0xe4,0xd3,0xbd,0x61,0xc2,0x9f,0x25,0x4a,0x94,0x33,0x66,0xcc,0x83,0x1d,0x3a,0x74,
-                0xe8,0xcb,0x8d,0x01];
-  
-  const totalRounds = 14;
-  let result = byte;
-  
-  for (let r = 0; r < totalRounds; r++) {
-    result = sbox[result];
-    result = ((result << ((r + 1) % 8)) | (result >> (8 - ((r + 1) % 8)))) & 0xFF;
-    result ^= (key >> (r % 8)) & 0xFF;
-    result ^= rcon[r % rcon.length];
-    if (r < totalRounds - 1) {
-      result = (result ^ (result << 1) ^ (result << 2) ^ (result << 3)) & 0xFF;
-    }
-  }
-  return result;
-}
-
-// ─── 2. ChaCha20 COMPLET ──────────────────────────────────────────────────────
-function applyChaCha20(byte, key, counter) {
-  const constants = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
-  const keyWords = [];
-  for (let i = 0; i < 8; i++) {
-    keyWords.push((key >> (i * 32)) & 0xFFFFFFFF);
-  }
-  
-  let state = [
-    constants[0], constants[1], constants[2], constants[3],
-    keyWords[0], keyWords[1], keyWords[2], keyWords[3],
-    keyWords[4], keyWords[5], keyWords[6], keyWords[7],
-    counter & 0xFFFFFFFF, (counter >> 32) & 0xFFFFFFFF,
-    0, 0
-  ];
-  
-  function QR(a, b, c, d) {
-    a = (a + b) & 0xFFFFFFFF;
-    d ^= a;
-    d = ((d << 16) | (d >>> 16)) & 0xFFFFFFFF;
-    c = (c + d) & 0xFFFFFFFF;
-    b ^= c;
-    b = ((b << 12) | (b >>> 20)) & 0xFFFFFFFF;
-    a = (a + b) & 0xFFFFFFFF;
-    d ^= a;
-    d = ((d << 8) | (d >>> 24)) & 0xFFFFFFFF;
-    c = (c + d) & 0xFFFFFFFF;
-    b ^= c;
-    b = ((b << 7) | (b >>> 25)) & 0xFFFFFFFF;
-    return [a, b, c, d];
-  }
-  
-  for (let round = 0; round < 10; round++) {
-    [state[0], state[4], state[8], state[12]] = QR(state[0], state[4], state[8], state[12]);
-    [state[1], state[5], state[9], state[13]] = QR(state[1], state[5], state[9], state[13]);
-    [state[2], state[6], state[10], state[14]] = QR(state[2], state[6], state[10], state[14]);
-    [state[3], state[7], state[11], state[15]] = QR(state[3], state[7], state[11], state[15]);
-    [state[0], state[5], state[10], state[15]] = QR(state[0], state[5], state[10], state[15]);
-    [state[1], state[6], state[11], state[12]] = QR(state[1], state[6], state[11], state[12]);
-    [state[2], state[7], state[8], state[13]] = QR(state[2], state[7], state[8], state[13]);
-    [state[3], state[4], state[9], state[14]] = QR(state[3], state[4], state[9], state[14]);
-  }
-  
-  return byte ^ (state[0] & 0xFF);
-}
-
-// ─── 3. XChaCha20 COMPLET ──────────────────────────────────────────────────────
-function applyXChaCha20(byte, key, counter) {
-  const constants = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
-  const keyWords = [];
-  for (let i = 0; i < 8; i++) {
-    keyWords.push((key >> (i * 32)) & 0xFFFFFFFF);
-  }
-  
-  function QR(a, b, c, d) {
-    a = (a + b) & 0xFFFFFFFF;
-    d ^= a;
-    d = ((d << 16) | (d >>> 16)) & 0xFFFFFFFF;
-    c = (c + d) & 0xFFFFFFFF;
-    b ^= c;
-    b = ((b << 12) | (b >>> 20)) & 0xFFFFFFFF;
-    a = (a + b) & 0xFFFFFFFF;
-    d ^= a;
-    d = ((d << 8) | (d >>> 24)) & 0xFFFFFFFF;
-    c = (c + d) & 0xFFFFFFFF;
-    b ^= c;
-    b = ((b << 7) | (b >>> 25)) & 0xFFFFFFFF;
-    return [a, b, c, d];
-  }
-  
-  let state = [
-    constants[0], constants[1], constants[2], constants[3],
-    keyWords[0], keyWords[1], keyWords[2], keyWords[3],
-    keyWords[4], keyWords[5], keyWords[6], keyWords[7],
-    counter & 0xFFFFFFFF, 0x00000000,
-    0x00000000, 0x00000000
-  ];
-  
-  for (let round = 0; round < 10; round++) {
-    [state[0], state[4], state[8], state[12]] = QR(state[0], state[4], state[8], state[12]);
-    [state[1], state[5], state[9], state[13]] = QR(state[1], state[5], state[9], state[13]);
-    [state[2], state[6], state[10], state[14]] = QR(state[2], state[6], state[10], state[14]);
-    [state[3], state[7], state[11], state[15]] = QR(state[3], state[7], state[11], state[15]);
-    [state[0], state[5], state[10], state[15]] = QR(state[0], state[5], state[10], state[15]);
-    [state[1], state[6], state[11], state[12]] = QR(state[1], state[6], state[11], state[12]);
-    [state[2], state[7], state[8], state[13]] = QR(state[2], state[7], state[8], state[13]);
-    [state[3], state[4], state[9], state[14]] = QR(state[3], state[4], state[9], state[14]);
-  }
-  
-  const subKey = [state[0], state[1], state[2], state[3], state[12], state[13], state[14], state[15]];
-  
-  let subState = [
-    constants[0], constants[1], constants[2], constants[3],
-    subKey[0], subKey[1], subKey[2], subKey[3],
-    subKey[4], subKey[5], subKey[6], subKey[7],
-    0x00000000, 0x00000000,
-    0x00000000, 0x00000000
-  ];
-  
-  for (let round = 0; round < 10; round++) {
-    [subState[0], subState[4], subState[8], subState[12]] = QR(subState[0], subState[4], subState[8], subState[12]);
-    [subState[1], subState[5], subState[9], subState[13]] = QR(subState[1], subState[5], subState[9], subState[13]);
-    [subState[2], subState[6], subState[10], subState[14]] = QR(subState[2], subState[6], subState[10], subState[14]);
-    [subState[3], subState[7], subState[11], subState[15]] = QR(subState[3], subState[7], subState[11], subState[15]);
-    [subState[0], subState[5], subState[10], subState[15]] = QR(subState[0], subState[5], subState[10], subState[15]);
-    [subState[1], subState[6], subState[11], subState[12]] = QR(subState[1], subState[6], subState[11], subState[12]);
-    [subState[2], subState[7], subState[8], subState[13]] = QR(subState[2], subState[7], subState[8], subState[13]);
-    [subState[3], subState[4], subState[9], subState[14]] = QR(subState[3], subState[4], subState[9], subState[14]);
-  }
-  
-  return byte ^ (subState[0] & 0xFF);
-}
-
-// ─── 4. Salsa20 COMPLET ──────────────────────────────────────────────────────
-function applySalsa20(byte, key, counter) {
-  const constants = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
-  const keyWords = [];
-  for (let i = 0; i < 8; i++) {
-    keyWords.push((key >> (i * 32)) & 0xFFFFFFFF);
-  }
-  
-  let state = [
-    constants[0], constants[1], constants[2], constants[3],
-    keyWords[0], keyWords[1], keyWords[2], keyWords[3],
-    keyWords[4], keyWords[5], keyWords[6], keyWords[7],
-    counter & 0xFFFFFFFF, (counter >> 32) & 0xFFFFFFFF,
-    0, 0
-  ];
-  
-  function QR(a, b, c, d) {
-    b ^= ((a + d) & 0xFFFFFFFF);
-    b = ((b << 7) | (b >>> 25)) & 0xFFFFFFFF;
-    c ^= ((b + a) & 0xFFFFFFFF);
-    c = ((c << 9) | (c >>> 23)) & 0xFFFFFFFF;
-    d ^= ((c + b) & 0xFFFFFFFF);
-    d = ((d << 13) | (d >>> 19)) & 0xFFFFFFFF;
-    a ^= ((d + c) & 0xFFFFFFFF);
-    a = ((a << 18) | (a >>> 14)) & 0xFFFFFFFF;
-    return [a, b, c, d];
-  }
-  
-  for (let round = 0; round < 10; round++) {
-    [state[0], state[4], state[8], state[12]] = QR(state[0], state[4], state[8], state[12]);
-    [state[1], state[5], state[9], state[13]] = QR(state[1], state[5], state[9], state[13]);
-    [state[2], state[6], state[10], state[14]] = QR(state[2], state[6], state[10], state[14]);
-    [state[3], state[7], state[11], state[15]] = QR(state[3], state[7], state[11], state[15]);
-    [state[0], state[5], state[10], state[15]] = QR(state[0], state[5], state[10], state[15]);
-    [state[1], state[6], state[11], state[12]] = QR(state[1], state[6], state[11], state[12]);
-    [state[2], state[7], state[8], state[13]] = QR(state[2], state[7], state[8], state[13]);
-    [state[3], state[4], state[9], state[14]] = QR(state[3], state[4], state[9], state[14]);
-  }
-  
-  return byte ^ (state[0] & 0xFF);
-}
-
-// Détermine la zone d'un offset : 'header', 'code', 'data'
-function getOffsetZone(bytes, off){
-  try{
-    if(bytes[0]!==0x4D||bytes[1]!==0x5A) return "data";
-    const peOff=bytes[0x3C]|(bytes[0x3D]<<8)|(bytes[0x3E]<<16)|(bytes[0x3F]<<24);
-    const numSec=bytes[peOff+6]|(bytes[peOff+7]<<8);
-    const optSize=bytes[peOff+20]|(bytes[peOff+21]<<8);
-    let secOff=peOff+24+optSize, hdrEnd=0x400, cStart=-1, cEnd=0;
-    const secs=[];
-    for(let s=0;s<numSec;s++){
-      const rawSize=bytes[secOff+16]|(bytes[secOff+17]<<8)|(bytes[secOff+18]<<16)|(bytes[secOff+19]<<24);
-      const rawOff=bytes[secOff+20]|(bytes[secOff+21]<<8)|(bytes[secOff+22]<<16)|(bytes[secOff+23]<<24);
-      const chars=bytes[secOff+36]|(bytes[secOff+37]<<8)|(bytes[secOff+38]<<16)|(bytes[secOff+39]<<24);
-      secs.push({rawOff});
-      if((chars&0x20000000)&&cStart<0){cStart=rawOff;cEnd=rawOff+rawSize;}
-      secOff+=40;
-    }
-    if(secs.length>0) hdrEnd=Math.min(...secs.map(s=>s.rawOff));
-    if(off<hdrEnd) return "header";
-    if(cStart>=0&&off>=cStart&&off<cEnd) return "code";
-    return "data";
-  }catch(e){ return "data"; }
-}
-
-// ─── Fonction applyHexStrategy (modifiée) ──────────────────────────────────
+// ─── NOUVELLE FONCTION applyHexStrategy AVEC AES-256-GCM ──────────────────
 function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
   const result = new Uint8Array(bytes);
   if(offsets.length === 0) return result;
@@ -2938,8 +2817,6 @@ function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
     return result;
   }
   
-  // Stratégies "sûres" : ne modifient QUE les zones autorisées, protègent le reste.
-  // safenop → code seulement ; safezero/safexor/saferandom → données seulement (pas code ni en-tête)
   const SAFE_STRATS={
     safenop:{val:0x90, zones:["code"], op:"nop"},
     safezero:{val:0x00, zones:["data"], op:"zero"},
@@ -2962,7 +2839,6 @@ function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
     return result;
   }
 
-  // Modification ciblée par zone (l'utilisateur choisit la zone à modifier)
   if(strategy==="zonetarget"){
     const targetZone=window._targetZone||"data";
     const tval=parseInt((customValue||"90").replace(/[^0-9A-Fa-f]/g,"").substring(0,2),16);
@@ -2975,6 +2851,53 @@ function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
     return result;
   }
 
+  // ─── AES-256-GCM AVEC VRAI CHIFFREMENT ─────────────────────
+  // On utilise la clé fournie dans xorKey (64 caractères hex)
+  // La fonction est asynchrone, mais appelée depuis un gestionnaire
+  // qui l'attend. On stocke le résultat dans une promesse.
+  if(strategy === "aes256"){
+    // La clé AES est passée via xorKey, qui doit être une chaîne hex de 64 caractères
+    // OU une clé CryptoKey déjà importée. On la traite comme string hex.
+    const keyHex = xorKey || "0000000000000000000000000000000000000000000000000000000000000000";
+    // On lance le chiffrement de manière asynchrone via une promesse
+    // mais on ne peut pas renvoyer directement une promesse depuis cette fonction synchrone.
+    // On va stocker le résultat dans une variable globale et le récupérer plus tard.
+    // APPROCHE : on lance le chiffrement et on stocke la promesse dans window._aesPromise
+    // Le gestionnaire de clic attendra cette promesse.
+    window._aesPromise = (async () => {
+      try {
+        // Importer la clé
+        const key = await importAES256Key(keyHex);
+        // Préparer les données à chiffrer
+        const dataToEncrypt = new Uint8Array(offsets.length);
+        for (let i = 0; i < offsets.length; i++) {
+          dataToEncrypt[i] = bytes[offsets[i]];
+        }
+        // Chiffrer
+        const encrypted = await encryptAES256GCM(key, dataToEncrypt);
+        // Créer le résultat
+        const res = new Uint8Array(bytes);
+        const ciphertextWithoutTag = encrypted.ciphertext.slice(0, -16);
+        for (let i = 0; i < Math.min(offsets.length, ciphertextWithoutTag.length); i++) {
+          res[offsets[i]] = ciphertextWithoutTag[i];
+        }
+        // Stocker les métadonnées
+        res._aesIV = encrypted.iv;
+        res._aesTag = encrypted.tag;
+        res._aesKey = keyHex;
+        return res;
+      } catch (error) {
+        console.error("AES-256-GCM error:", error);
+        window._aesError = error.message;
+        return null;
+      }
+    })();
+    // On retourne le tableau original inchangé pour l'instant ;
+    // le résultat sera appliqué dans le gestionnaire de clic.
+    return result;
+  }
+
+  // Autres stratégies
   offsets.forEach((o, idx) => {
     switch(strategy){
       case "nop": result[o] = 0x90; break;
@@ -2993,14 +2916,32 @@ function applyHexStrategy(bytes, offsets, strategy, customValue, xorKey){
       case "addconst": result[o] = (bytes[o] + xk) & 0xFF; break;
       case "subconst": result[o] = (bytes[o] - xk + 256) & 0xFF; break;
       case "seq": result[o] = idx & 0xFF; break;
-      // ✅ AJOUT : Algorithmes 100% réels
-      case "aes256": result[o] = applyAES256(bytes[o], xk, idx); break;
-      case "chacha20": result[o] = applyChaCha20(bytes[o], xk, idx); break;
-      case "xchacha20": result[o] = applyXChaCha20(bytes[o], xk, idx); break;
-      case "salsa20": result[o] = applySalsa20(bytes[o], xk, idx); break;
     }
   });
   return result;
+}
+
+function getOffsetZone(bytes, off){
+  try{
+    if(bytes[0]!==0x4D||bytes[1]!==0x5A) return "data";
+    const peOff=bytes[0x3C]|(bytes[0x3D]<<8)|(bytes[0x3E]<<16)|(bytes[0x3F]<<24);
+    const numSec=bytes[peOff+6]|(bytes[peOff+7]<<8);
+    const optSize=bytes[peOff+20]|(bytes[peOff+21]<<8);
+    let secOff=peOff+24+optSize, hdrEnd=0x400, cStart=-1, cEnd=0;
+    const secs=[];
+    for(let s=0;s<numSec;s++){
+      const rawSize=bytes[secOff+16]|(bytes[secOff+17]<<8)|(bytes[secOff+18]<<16)|(bytes[secOff+19]<<24);
+      const rawOff=bytes[secOff+20]|(bytes[secOff+21]<<8)|(bytes[secOff+22]<<16)|(bytes[secOff+23]<<24);
+      const chars=bytes[secOff+36]|(bytes[secOff+37]<<8)|(bytes[secOff+38]<<16)|(bytes[secOff+39]<<24);
+      secs.push({rawOff});
+      if((chars&0x20000000)&&cStart<0){cStart=rawOff;cEnd=rawOff+rawSize;}
+      secOff+=40;
+    }
+    if(secs.length>0) hdrEnd=Math.min(...secs.map(s=>s.rawOff));
+    if(off<hdrEnd) return "header";
+    if(cStart>=0&&off>=cStart&&off<cEnd) return "code";
+    return "data";
+  }catch(e){ return "data"; }
 }
 
 const HEX_STRAT_LABELS = {
@@ -3008,7 +2949,7 @@ const HEX_STRAT_LABELS = {
   increment:"Incrément", decrement:"Décrément", invert:"NOT", xor:"XOR", random:"Aléatoire",
   pattern:"Motif", shuffle:"Shuffle", mirror:"Miroir", entropy:"Entropie",
   rol:"ROL", ror:"ROR", swapnib:"Swap nibbles", addconst:"Add const", subconst:"Sub const", seq:"Séquence",
-  aes256:"AES-256 (14 rounds)", chacha20:"ChaCha20 (20 rounds)", xchacha20:"XChaCha20 (HChaCha20+ChaCha20)", salsa20:"Salsa20 (20 rounds)"
+  aes256:"🔐 AES-256-GCM (Web Crypto API)"
 };
 
 const HEX_STRAT_DESC = {
@@ -3037,10 +2978,7 @@ const HEX_STRAT_DESC = {
   addconst:"Ajoute la clé (champ ci-contre) à chaque octet",
   subconst:"Soustrait la clé (champ ci-contre) à chaque octet",
   seq:"Séquence croissante 00 01 02 03 04…",
-  aes256:"🔐 AES-256 — 14 rounds complets (S-Box + ShiftRows + MixColumns + AddRoundKey)",
-  chacha20:"🔐 ChaCha20 — 20 rounds complets (ARX + Quarter Rounds)",
-  xchacha20:"🔐 XChaCha20 — HChaCha20 (20 rounds) + ChaCha20 (20 rounds)",
-  salsa20:"🔐 Salsa20 — 20 rounds complets (QR Salsa20)"
+  aes256:"🔐 AES-256-GCM — Chiffrement authentifié standard NIST (Web Crypto API)"
 };
 
 function updateStratDesc(){
@@ -3266,7 +3204,6 @@ updateStratDesc();
 
 // ─── Créer une variante ──────────────────────────────────────────────────────
 
-// Scanne tous les blocs du fichier et retourne ceux qui sont sûrs à modifier (🟢)
 function suggestSafeBlocks(){
   if(!hexBytes){return;}
   const totalBlocks=Math.ceil(hexBytes.length/hexBlockSize);
@@ -3274,7 +3211,6 @@ function suggestSafeBlocks(){
   for(let i=0;i<totalBlocks;i++){
     const start=i*hexBlockSize;
     const end=Math.min(start+hexBlockSize,hexBytes.length);
-    // Offsets du bloc
     const offs=[];
     for(let o=start;o<end;o++) offs.push(o);
     const risk=evaluateBreakRisk(hexBytes,offs);
@@ -3284,7 +3220,6 @@ function suggestSafeBlocks(){
   }
   const box=$("hexSafeResult");
   let html="";
-  // Regrouper les numéros consécutifs en plages (B5-B12)
   function ranges(arr){
     if(arr.length===0) return "aucun";
     const r=[]; let s=arr[0], p=arr[0];
@@ -3305,9 +3240,6 @@ function suggestSafeBlocks(){
   log(`Analyse blocs sûrs : ${safe.length} sûrs, ${medium.length} moyens, ${risky.length} risqués`);
 }
 
-// Évalue le risque qu'un exe ne fonctionne plus après modification.
-// Vérifie TOUTES les zones critiques : en-tête, point d'entrée, code, imports,
-// relocations, tables de sections, répertoires de données.
 function evaluateBreakRisk(bytes, offsets){
   if(!bytes || bytes[0]!==0x4D || bytes[1]!==0x5A){
     return {level:"unknown", reason:"Fichier non-PE — impossible d'évaluer"};
@@ -3324,20 +3256,18 @@ function evaluateBreakRisk(bytes, offsets){
     const isPE32Plus=(magic===0x20B);
     const entryRVA=bytes[optOff+16]|(bytes[optOff+17]<<8)|(bytes[optOff+18]<<16)|(bytes[optOff+19]<<24);
 
-    // Data Directories (imports, relocations…) — position selon PE32/PE32+
     const ddOff=optOff+(isPE32Plus?112:96);
     function getDir(idx){
       const b=ddOff+idx*8;
       return {rva:bytes[b]|(bytes[b+1]<<8)|(bytes[b+2]<<16)|(bytes[b+3]<<24),
               size:bytes[b+4]|(bytes[b+5]<<8)|(bytes[b+6]<<16)|(bytes[b+7]<<24)};
     }
-    const importDir=getDir(1);   // Import Table
-    const iatDir=getDir(12);      // IAT
-    const relocDir=getDir(5);     // Base Relocations
-    const exportDir=getDir(0);    // Export Table
-    const tlsDir=getDir(9);       // TLS (callbacks exécutés au démarrage)
+    const importDir=getDir(1);
+    const iatDir=getDir(12);
+    const relocDir=getDir(5);
+    const exportDir=getDir(0);
+    const tlsDir=getDir(9);
 
-    // Table des sections
     let secOff=optOff+optSize;
     const secTableStart=secOff;
     const sections=[];
@@ -3355,12 +3285,10 @@ function evaluateBreakRisk(bytes, offsets){
     }
     const secTableEnd=secOff;
 
-    // Convertit une RVA en offset fichier
     function rvaToOff(rva){
       for(const s of sections){ if(rva>=s.vaddr && rva<s.vaddr+s.vsize) return s.rawOff+(rva-s.vaddr); }
       return -1;
     }
-    // Un range de la modif recoupe-t-il un range fichier [start,end) ?
     function hits(start,end){
       if(start<0||end<=start) return false;
       return offsets.some(o=>o>=start && o<end);
@@ -3369,22 +3297,16 @@ function evaluateBreakRisk(bytes, offsets){
     const minOff=Math.min(...offsets), maxOff=Math.max(...offsets);
     const headerEnd=sections.length>0?Math.min(...sections.map(s=>s.rawOff)):0x400;
 
-    // ── Vérifications par ordre de gravité ──
-
-    // 1. En-tête PE (DOS + PE + optional header)
     if(minOff<headerEnd){
       return {level:"high", reason:"Modifie l'en-tête PE — casse quasi certaine"};
     }
-    // 2. Table des sections
     if(hits(secTableStart,secTableEnd)){
       return {level:"high", reason:"Modifie la table des sections — Windows ne pourra plus charger le fichier"};
     }
-    // 3. Point d'entrée (±64 octets)
     const epOff=rvaToOff(entryRVA);
     if(epOff>=0 && offsets.some(o=>Math.abs(o-epOff)<64)){
       return {level:"high", reason:"Modifie le point d'entrée — l'exe ne démarrera pas"};
     }
-    // 4. Table d'imports / IAT
     const impOff=rvaToOff(importDir.rva);
     if(importDir.rva>0 && impOff>=0 && hits(impOff,impOff+importDir.size)){
       return {level:"high", reason:"Modifie la table d'imports — l'exe ne trouvera plus ses fonctions Windows"};
@@ -3393,38 +3315,89 @@ function evaluateBreakRisk(bytes, offsets){
     if(iatDir.rva>0 && iatOff>=0 && hits(iatOff,iatOff+iatDir.size)){
       return {level:"high", reason:"Modifie l'IAT (adresses des fonctions) — plantage au démarrage"};
     }
-    // 5. TLS (callbacks exécutés avant le point d'entrée)
     const tlsOff=rvaToOff(tlsDir.rva);
     if(tlsDir.rva>0 && tlsOff>=0 && hits(tlsOff,tlsOff+tlsDir.size)){
       return {level:"high", reason:"Modifie les callbacks TLS — code exécuté au démarrage, risque élevé"};
     }
-    // 6. Relocations
     const relOff=rvaToOff(relocDir.rva);
     if(relocDir.rva>0 && relOff>=0 && hits(relOff,relOff+relocDir.size)){
       return {level:"high", reason:"Modifie les relocations — l'exe peut planter au chargement"};
     }
-    // 7. Table d'exports (pour les DLL surtout)
     const expOff=rvaToOff(exportDir.rva);
     if(exportDir.rva>0 && expOff>=0 && hits(expOff,expOff+exportDir.size)){
       return {level:"med", reason:"Modifie la table d'exports — peut casser une DLL (moins grave pour un exe)"};
     }
-    // 8. Section de code exécutable
     const inCode=sections.some(s=>s.exec && ((minOff>=s.rawOff&&minOff<s.rawEnd)||(maxOff>=s.rawOff&&maxOff<s.rawEnd)));
     if(inCode){
       return {level:"high", reason:"Modifie du code exécutable (.text) — risque élevé de plantage"};
     }
-    // 9. Sinon : données/ressources
     return {level:"low", reason:"Modifie des données/ressources hors zones critiques — bonnes chances de fonctionner"};
   }catch(e){
     return {level:"unknown", reason:"Analyse impossible"};
   }
 }
 
+// ─── Gestionnaire de clic "Créer variante" avec AES-256-GCM ────────────────
 $("hexCreateVariant").addEventListener("click", async() => {
   const offs = hexSelectedOffsets();
   if(offs.length === 0){ alert("Sélectionne d'abord des lignes (active les cases)."); return; }
   const strategy = $("hexStrategy").value;
-  const variantBytes = applyHexStrategy(hexBytes, offs, strategy, $("hexStratValue").value, $("hexXorKey").value);
+  const customValue = $("hexStratValue").value;
+  let xorKey = $("hexXorKey").value;
+
+  // Si la stratégie est AES-256-GCM, générer une clé aléatoire si vide
+  if(strategy === "aes256"){
+    if(!xorKey || xorKey.length !== 64){
+      try{
+        const key = await generateAES256Key();
+        xorKey = await exportAES256Key(key);
+        $("hexXorKey").value = xorKey;
+        log(`🔑 Clé AES-256-GCM générée automatiquement : ${xorKey.substring(0,16)}…`);
+      }catch(e){
+        alert("Erreur de génération de clé AES: " + e.message);
+        return;
+      }
+    }
+    // Nettoyer et valider la clé
+    const cleanKey = xorKey.replace(/[^0-9a-fA-F]/g, '');
+    if(cleanKey.length !== 64){
+      alert(`Clé AES-256 invalide: ${cleanKey.length} caractères au lieu de 64.`);
+      return;
+    }
+    xorKey = cleanKey;
+  }
+
+  // Appliquer la stratégie (pour AES-256, le chiffrement est fait plus tard via applyHexStrategy)
+  let variantBytes;
+  try{
+    variantBytes = applyHexStrategy(hexBytes, offs, strategy, customValue, xorKey);
+  }catch(e){
+    alert("Erreur: " + e.message);
+    return;
+  }
+
+  // Si AES-256, la fonction applyHexStrategy a lancé une promesse stockée dans window._aesPromise
+  if(strategy === "aes256" && window._aesPromise){
+    try{
+      const result = await window._aesPromise;
+      if(result === null){
+        throw new Error(window._aesError || "Échec du chiffrement AES-256-GCM");
+      }
+      variantBytes = result;
+      log(`🔐 AES-256-GCM appliqué avec IV: ${bytesToHexAES(variantBytes._aesIV || new Uint8Array(0))}`);
+    }catch(e){
+      alert("Erreur AES-256-GCM: " + e.message);
+      return;
+    }finally{
+      window._aesPromise = null;
+    }
+  }
+
+  if(!variantBytes || variantBytes.length === 0){
+    alert("Erreur: variante vide.");
+    return;
+  }
+
   const hash = await sha256Bytes(variantBytes);
   const origHash = await sha256Bytes(hexBytes);
   const pe = (variantBytes[0] === 0x4D && variantBytes[1] === 0x5A);
@@ -3444,10 +3417,8 @@ $("hexCreateVariant").addEventListener("click", async() => {
   offs.forEach(o => { modBlocks.add(Math.floor(o / hexBlockSize) + 1); });
   const blocksLabel = [...modBlocks].sort((a, b) => a - b).map(n => "B" + n).join(" ");
 
-  // Évaluer le risque de cassure selon où sont les octets modifiés
   const breakRisk = evaluateBreakRisk(hexBytes, offs);
-
-  const isCrypto = ['aes256', 'chacha20', 'xchacha20', 'salsa20'].includes(strategy);
+  const isCrypto = strategy === "aes256";
   const cryptoLabel = isCrypto ? '🔐 ' : '';
 
   hexVariants.push({
@@ -3462,16 +3433,22 @@ $("hexCreateVariant").addEventListener("click", async() => {
     blocks: blocksLabel,
     blockSize: hexBlockSize,
     breakRisk,
-    note: isCrypto ? `Chiffré avec ${HEX_STRAT_LABELS[strategy]}` : "",
+    note: isCrypto ? `Chiffré avec AES-256-GCM` : "",
     date: new Date().toLocaleString("fr-FR"),
-    fileName: hexFileNameStr
+    fileName: hexFileNameStr,
+    aesIV: variantBytes._aesIV ? bytesToHexAES(variantBytes._aesIV) : null,
+    aesTag: variantBytes._aesTag ? bytesToHexAES(variantBytes._aesTag) : null,
+    aesKey: variantBytes._aesKey || null,
   });
   saveHexVariants();
 
   downloadBytes(variantBytes, name);
 
-  log(`Variante ${name} créée (${HEX_STRAT_LABELS[strategy] || strategy}, ${offs.length} octets, blocs ${blocksLabel}, PE ${pe ? 'valide' : 'invalide'})`);
-  // Compteur de protection pour les stratégies sûres
+  if(isCrypto){
+    log(`🔐 Variante ${name} créée avec AES-256-GCM (${offs.length} octets, IV: ${variantBytes._aesIV ? bytesToHexAES(variantBytes._aesIV).substring(0,16) : '?'}…)`);
+  } else {
+    log(`Variante ${name} créée (${HEX_STRAT_LABELS[strategy] || strategy}, ${offs.length} octets, blocs ${blocksLabel}, PE ${pe ? 'valide' : 'invalide'})`);
+  }
   if(window._safeStats){
     log(`🛡️ Protection : ${window._safeStats.modified} octets modifiés (zone ${window._safeStats.allowed}), ${window._safeStats.protected} octets PROTÉGÉS (zones critiques épargnées)`);
     window._safeStats=null;
@@ -3499,6 +3476,7 @@ function saveHexVariants(){
         origLength: v.bytes ? v.bytes.length : 0,
         vtDetections: v.vtDetections, vtTotal: v.vtTotal, vtSuspicious: v.vtSuspicious,
         breakRisk: v.breakRisk,
+        aesIV: v.aesIV, aesTag: v.aesTag, aesKey: v.aesKey,
       };
     });
     localStorage.setItem("hexVariantsLight", JSON.stringify(light));
@@ -3547,12 +3525,14 @@ function renderHexVariants(){
     </div></div>`;
   html += `<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">`;
   hexVariants.forEach((v, i) => {
+    const isAES = v.strategy && v.strategy.includes('AES-256');
     html += `<div style="border-top:2px solid #ffffff;border-left:2px solid #ffffff;border-right:2px solid #808080;border-bottom:2px solid #808080;background:${i%2?'#e8e5dd':'#f4f2ec'};padding:10px;box-sizing:border-box;margin-bottom:8px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;border-bottom:1px solid #b8b4ac;padding-bottom:6px;">
         <span style="font-weight:700;color:var(--panel-blue);font-size:13px;">${v.name}</span>
         <span style="display:flex;gap:8px;align-items:center;">
           ${v.vtTotal !== undefined ? `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${v.vtDetections > 0 ? '#ffe0e0' : '#e0f5e0'};color:${v.vtDetections > 0 ? '#c00' : '#0a7'};" title="Détections VirusTotal">🛡️ ${v.vtDetections}/${v.vtTotal}</span>` : ''}
           <span style="font-size:11px;font-weight:600;">${v.pe ? '<span style="color:#0a7;">✅ PE valide</span>' : '<span style="color:#c00;">❌ PE invalide</span>'}</span>
+          ${isAES ? '<span style="font-size:11px;font-weight:600;background:#d4edda;padding:2px 8px;border-radius:10px;color:#155724;">🔐 AES</span>' : ''}
         </span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px;color:#444;margin-bottom:8px;">
@@ -3561,6 +3541,8 @@ function renderHexVariants(){
         <span><b style="color:#666;">Octets modifiés :</b> ${v.offsets.length}</span>
         <span><b style="color:#666;">Entropie :</b> <span style="color:#0a7;">${v.entropy}/8</span></span>
         ${v.breakRisk ? `<span style="grid-column:1 / -1;"><b style="color:#666;">Risque de cassure :</b> ${v.breakRisk.level==='high'?'<span style="color:#c00;font-weight:700;">🔴 Élevé</span>':v.breakRisk.level==='low'?'<span style="color:#0a7;font-weight:700;">🟢 Faible</span>':'<span style="color:#e0a800;font-weight:700;">🟡 Inconnu</span>'} <span style="color:#888;font-size:10px;">— ${v.breakRisk.reason}</span></span>` : ''}
+        ${isAES && v.aesIV ? `<span style="grid-column:1 / -1;"><b style="color:#666;">IV :</b> <span style="font-family:monospace;font-size:10px;color:#2b6cb0;">${v.aesIV.substring(0,24)}…</span></span>` : ''}
+        ${isAES && v.aesKey ? `<span style="grid-column:1 / -1;"><b style="color:#666;">Clé :</b> <span style="font-family:monospace;font-size:10px;color:#2b6cb0;">${v.aesKey.substring(0,16)}…</span></span>` : ''}
         <span style="grid-column:1 / -1;" title="${v.hash}"><b style="color:#666;">SHA-256 :</b> <span style="color:var(--panel-blue);font-family:monospace;">${v.hash.substring(0,20)}…</span></span>
       </div>
       <div style="margin-bottom:6px;">
@@ -3719,7 +3701,6 @@ $("hexApplyBtn").addEventListener("click", () => {
   const val = parseInt($("hexValueInput").value, 16);
   if(isNaN(val) || val < 0 || val > 255){ alert("Valeur hex invalide (00 à FF)."); return; }
 
-  // Calculer l'instruction AVANT le changement
   let avant = null, apres = null;
   try{
     if(typeof disasmOne === "function"){
@@ -3730,7 +3711,6 @@ $("hexApplyBtn").addEventListener("click", () => {
   const oldVal = hexBytes[hexSelectedOffset];
   hexBytes[hexSelectedOffset] = val;
 
-  // Calculer l'instruction APRÈS le changement
   try{
     if(typeof disasmOne === "function"){
       apres = disasmOne(hexBytes, hexSelectedOffset);
@@ -3739,7 +3719,6 @@ $("hexApplyBtn").addEventListener("click", () => {
 
   log(`Offset 0x${hexSelectedOffset.toString(16).toUpperCase()} : 0x${oldVal.toString(16).toUpperCase().padStart(2,"0")} → 0x${val.toString(16).toUpperCase().padStart(2,"0")}`);
 
-  // Afficher le changement d'instruction (pédagogique)
   const info = $("hexByteInfo");
   if(info && avant && apres){
     info.style.display = "block";
@@ -3819,12 +3798,11 @@ function generateTestPE(){
   w32(SEC+88, 0x200); w32(SEC+92, 0x3000);
   w32(SEC+96, 0x200); w32(SEC+100, 0x800); w32(SEC+116, 0xC0000040);
 
-  // 4e section : .rsrc (ressources, contient l'icône)
   const rsname = ".rsrc\0\0\0";
   for(let i = 0; i < 8; i++) buf[SEC+120+i] = rsname.charCodeAt(i) || 0;
-  w32(SEC+128, 0x800); w32(SEC+132, 0x4000);       // VirtualSize, VirtualAddress
-  w32(SEC+136, 0x800); w32(SEC+140, 0xA00);         // RawSize, RawOffset (0xA00)
-  w32(SEC+156, 0x40000040);                         // Characteristics (données initialisées, lecture)
+  w32(SEC+128, 0x800); w32(SEC+132, 0x4000);
+  w32(SEC+136, 0x800); w32(SEC+140, 0xA00);
+  w32(SEC+156, 0x40000040);
 
   const VI = 0x600;
   buf[VI] = 0xFE; buf[VI+1] = 0xEF; buf[VI+2] = 0x04; buf[VI+3] = 0xBD;
@@ -3840,25 +3818,12 @@ function generateTestPE(){
   const mOff = 0x650;
   for(let i = 0; i < manifest.length && mOff + i < buf.length; i++) buf[mOff + i] = manifest.charCodeAt(i);
 
-  // Vraie petite fonction de démonstration avec instructions x86 variées
-  // (calcule une somme, compare, saute — pour illustrer le désassemblage)
   const code = [
-    0x55,                    // push ebp
-    0x89, 0xE5,              // mov ebp, esp
-    0xB8, 0x05, 0x00, 0x00, 0x00,  // mov eax, 5
-    0xBB, 0x03, 0x00, 0x00, 0x00,  // mov ebx, 3
-    0x01, 0xD8,              // add eax, ebx  (eax = eax + ebx)
-    0x83, 0xF8, 0x08,        // cmp eax, 8
-    0x74, 0x05,              // je +5  (saute si égal à 8)
-    0xB8, 0x00, 0x00, 0x00, 0x00,  // mov eax, 0
-    0x40,                    // inc eax
-    0x48,                    // dec eax
-    0x50,                    // push eax
-    0x58,                    // pop eax
-    0x90,                    // nop
-    0xE8, 0x00, 0x00, 0x00, 0x00,  // call (relatif)
-    0x5D,                    // pop ebp
-    0xC3,                    // ret
+    0x55, 0x89, 0xE5, 0xB8, 0x05, 0x00, 0x00, 0x00,
+    0xBB, 0x03, 0x00, 0x00, 0x00, 0x01, 0xD8, 0x83,
+    0xF8, 0x08, 0x74, 0x05, 0xB8, 0x00, 0x00, 0x00,
+    0x00, 0x40, 0x48, 0x50, 0x58, 0x90, 0xE8, 0x00,
+    0x00, 0x00, 0x00, 0x5D, 0xC3,
   ];
   for(let i = 0; i < code.length; i++) buf[0x400 + i] = code[i];
   const strings = ["TestApp v1.0", "Copyright 2024", "example.com"];
@@ -3870,75 +3835,50 @@ function generateTestPE(){
   for(let i = 0; i < buf.length - 1; i += 2){ sum += ((buf[i+1] << 8) | buf[i]) + carry; carry = sum >>> 16; sum &= 0xffff; }
   sum = (sum + carry) & 0xffff; const cs = (sum + buf.length) >>> 0; w32(OPT+64, cs);
 
-  // Agrandir à ~26 Ko en ajoutant des données variées après le contenu existant
-  // (zone de données supplémentaire — n'affecte pas les structures critiques)
-  const bigBuf = new Uint8Array(26624); // 26 Ko
+  const bigBuf = new Uint8Array(26624);
   bigBuf.set(buf, 0);
   const bw16 = (off, v) => writeU16LE(bigBuf, off, v);
   const bw32 = (off, v) => writeU32LE(bigBuf, off, v);
 
-  // ── Section .rsrc à l'offset 0xA00 : structure d'icône COMPLÈTE (3 niveaux) ──
-  // Le détecteur PE attend : Niveau1 (type) → Niveau2 (ID) → Niveau3 (langue) → data
-  const RSRC = 0xA00;          // offset fichier de .rsrc
-  const RSRC_RVA = 0x4000;     // RVA de .rsrc (doit correspondre à VirtualAddress)
-
-  // Un répertoire = 16 octets d'en-tête + 8 par entrée
-  // Layout qu'on construit (offsets relatifs à RSRC) :
-  //   0x00 : Niveau 1 (racine) — 1 entrée : type RT_ICON(3)
-  //   0x18 : Niveau 2 pour RT_ICON — 1 entrée : ID 1
-  //   0x30 : Niveau 3 pour ID 1 — 1 entrée : langue 0 → DataEntry
-  //   0x48 : DataEntry (RVA + taille des données de l'icône)
-  //   0x60 : données réelles de l'icône (BITMAPINFOHEADER + pixels)
-
-  // Niveau 1 : racine
-  bw16(RSRC+12, 0); bw16(RSRC+14, 1);              // 0 nommés, 1 par ID
-  bw32(RSRC+16, 3);                                 // ID = 3 (RT_ICON)
-  bw32(RSRC+20, 0x80000000 | 0x18);                 // pointe vers Niveau 2 (offset 0x18), bit répertoire
-
-  // Niveau 2 : pour RT_ICON, liste les icônes (ID 1)
+  const RSRC = 0xA00;
+  const RSRC_RVA = 0x4000;
+  bw16(RSRC+12, 0); bw16(RSRC+14, 1);
+  bw32(RSRC+16, 3);
+  bw32(RSRC+20, 0x80000000 | 0x18);
   bw16(RSRC+0x18+12, 0); bw16(RSRC+0x18+14, 1);
-  bw32(RSRC+0x18+16, 1);                             // ID de l'icône = 1
-  bw32(RSRC+0x18+20, 0x80000000 | 0x30);            // pointe vers Niveau 3 (offset 0x30)
-
-  // Niveau 3 : langue → pointe vers le DataEntry (PAS un répertoire)
+  bw32(RSRC+0x18+16, 1);
+  bw32(RSRC+0x18+20, 0x80000000 | 0x30);
   bw16(RSRC+0x30+12, 0); bw16(RSRC+0x30+14, 1);
-  bw32(RSRC+0x30+16, 0x0409);                        // langue (US English)
-  bw32(RSRC+0x30+20, 0x48);                          // pointe vers DataEntry (offset 0x48, bit=0 → data)
-
-  // DataEntry (16 octets) : RVA des données + taille
+  bw32(RSRC+0x30+16, 0x0409);
+  bw32(RSRC+0x30+20, 0x48);
   const iconDataFileOff = RSRC + 0x60;
   const iconDataRVA = RSRC_RVA + 0x60;
-  const iconDataSize = 40 + 16*16*4;                 // header + pixels
-  bw32(RSRC+0x48, iconDataRVA);                      // OffsetToData (RVA)
-  bw32(RSRC+0x48+4, iconDataSize);                   // Size
-  bw32(RSRC+0x48+8, 0);                              // CodePage
-  bw32(RSRC+0x48+12, 0);                             // Reserved
-
-  // Données réelles de l'icône (BITMAPINFOHEADER + pixels 16x16, carré coloré)
-  bw32(iconDataFileOff+0, 40);                       // biSize
-  bw32(iconDataFileOff+4, 16);                       // biWidth
-  bw32(iconDataFileOff+8, 32);                       // biHeight (16 image + 16 masque)
-  bw16(iconDataFileOff+12, 1);                       // biPlanes
-  bw16(iconDataFileOff+14, 32);                      // biBitCount
-  bw32(iconDataFileOff+16, 0);                       // biCompression
+  const iconDataSize = 40 + 16*16*4;
+  bw32(RSRC+0x48, iconDataRVA);
+  bw32(RSRC+0x48+4, iconDataSize);
+  bw32(RSRC+0x48+8, 0);
+  bw32(RSRC+0x48+12, 0);
+  bw32(iconDataFileOff+0, 40);
+  bw32(iconDataFileOff+4, 16);
+  bw32(iconDataFileOff+8, 32);
+  bw16(iconDataFileOff+12, 1);
+  bw16(iconDataFileOff+14, 32);
+  bw32(iconDataFileOff+16, 0);
   let px = iconDataFileOff + 40;
   for(let y = 0; y < 16; y++){
     for(let x = 0; x < 16; x++){
-      bigBuf[px++] = 200 - y*8;   // B
-      bigBuf[px++] = 100 + x*6;   // G
-      bigBuf[px++] = 40;          // R
-      bigBuf[px++] = 255;         // A
+      bigBuf[px++] = 200 - y*8;
+      bigBuf[px++] = 100 + x*6;
+      bigBuf[px++] = 40;
+      bigBuf[px++] = 255;
     }
   }
 
-  // Mettre à jour le Data Directory : entrée Ressources (index 2) → RVA + taille de .rsrc
-  w32(OPT+112, RSRC_RVA);                            // Resource Table RVA
-  w32(OPT+116, 0x800);                               // Resource Table Size
-  // (recopier ces 8 octets dans bigBuf car ils sont dans l'en-tête déjà copié)
+  bw32(OPT+112, RSRC_RVA);
+  bw32(OPT+116, 0x800);
   bw32(OPT+112, RSRC_RVA);
   bw32(OPT+116, 0x800);
 
-  // Remplir le reste avec des données variées (contenu réaliste)
   for(let i = 0xC00; i < bigBuf.length; i++){
     if(bigBuf[i] === 0) bigBuf[i] = (i * 37 + 11) % 256;
   }
@@ -3966,7 +3906,6 @@ $("hexLoadTestBtn").addEventListener("click", () => {
   if($("hexSafeBlocks")) $("hexSafeBlocks").classList.remove("hidden");
   if($("hexDisasmBox")){$("hexDisasmBox").classList.remove("hidden");$("hexDisasmResult").innerHTML="";}
   $("hexEditorBox").classList.remove("hidden");
-  // Télécharger aussi le fichier pour pouvoir le charger ailleurs via Parcourir
   downloadBytes(hexBytes, "test_sample.exe");
   log("EXE de test généré (PE32 valide) et téléchargé — tu peux le charger dans les autres onglets via Parcourir ✅");
 });
@@ -4131,25 +4070,20 @@ $("hxStrReplace").addEventListener("click", () => {
 try{ localStorage.removeItem("hexVariants"); } catch(e){}
 loadHexVariants();
 
-// Bouton suggérer les blocs sûrs
 $("hexSuggestSafe").addEventListener("click", suggestSafeBlocks);
 
 // ═══════════════════════════════════════════════════════════════
-// DÉSASSEMBLEUR x86 BASIQUE (éducatif) — traduit les octets du code
-// en instructions lisibles. Analyse statique, n'exécute rien.
-// Gère les instructions les plus courantes ; les rares sont marquées "db".
+// DÉSASSEMBLEUR x86 BASIQUE
 // ═══════════════════════════════════════════════════════════════
 const REG32=["eax","ecx","edx","ebx","esp","ebp","esi","edi"];
 const REG8=["al","cl","dl","bl","ah","ch","dh","bh"];
 
 function disasmOne(b, i){
-  // Retourne {text, len, comment} pour l'instruction à la position i
   const op=b[i];
   const hex=v=>v.toString(16).toUpperCase().padStart(2,"0");
   const rel8=()=>{const d=b[i+1];return d<128?d:d-256;};
   const imm32=()=>b[i+1]|(b[i+2]<<8)|(b[i+3]<<16)|(b[i+4]<<24);
 
-  // Instructions à un octet courantes
   if(op===0x90) return {text:"nop", len:1, comment:"ne fait rien (No Operation)"};
   if(op===0xC3) return {text:"ret", len:1, comment:"retourne de la fonction"};
   if(op===0xCC) return {text:"int3", len:1, comment:"point d'arrêt (breakpoint)"};
@@ -4159,20 +4093,16 @@ function disasmOne(b, i){
   if(op>=0x40&&op<=0x47) return {text:`inc ${REG32[op-0x40]}`, len:1, comment:"incrémente (+1)"};
   if(op>=0x48&&op<=0x4F) return {text:`dec ${REG32[op-0x48]}`, len:1, comment:"décrémente (-1)"};
 
-  // push imm8 / imm32
   if(op===0x6A) return {text:`push 0x${hex(b[i+1])}`, len:2, comment:"empile une valeur"};
   if(op===0x68) return {text:`push 0x${imm32().toString(16).toUpperCase()}`, len:5, comment:"empile une valeur 32 bits"};
 
-  // mov reg32, imm32 (B8..BF)
   if(op>=0xB8&&op<=0xBF){
     return {text:`mov ${REG32[op-0xB8]}, 0x${(imm32()>>>0).toString(16).toUpperCase()}`, len:5, comment:"charge une valeur dans un registre"};
   }
-  // mov reg8, imm8 (B0..B7)
   if(op>=0xB0&&op<=0xB7){
     return {text:`mov ${REG8[op-0xB0]}, 0x${hex(b[i+1])}`, len:2, comment:"charge une valeur 8 bits"};
   }
 
-  // Instructions à 2 octets avec ModRM (mov/add/sub/cmp/or/and/xor reg,reg)
   const modrmOp={0x89:"mov",0x8B:"mov",0x01:"add",0x03:"add",0x29:"sub",0x2B:"sub",
                  0x39:"cmp",0x3B:"cmp",0x31:"xor",0x21:"and",0x09:"or",0x85:"test"};
   if(modrmOp[op]!==undefined && b[i+1]!==undefined){
@@ -4180,8 +4110,7 @@ function disasmOne(b, i){
     const mod=(modrm>>6)&3;
     const reg=(modrm>>3)&7;
     const rm=modrm&7;
-    if(mod===3){ // registre vers registre
-      // Sens selon l'opcode (pair = rm<-reg, impair = reg<-rm en général)
+    if(mod===3){
       const dst=(op&2)?REG32[reg]:REG32[rm];
       const src=(op&2)?REG32[rm]:REG32[reg];
       const cmt={mov:"copie une valeur",add:"addition",sub:"soustraction",
@@ -4191,7 +4120,6 @@ function disasmOne(b, i){
     }
   }
 
-  // cmp/add/sub reg, imm8 (83 /r ib)
   if(op===0x83 && b[i+1]!==undefined){
     const modrm=b[i+1];
     const reg=(modrm>>3)&7;
@@ -4202,7 +4130,6 @@ function disasmOne(b, i){
     return {text:`${sub} ${REG32[rm]}, 0x${hex(b[i+2])}`, len:3, comment:cmt};
   }
 
-  // Sauts conditionnels courts (70..7F)
   const jcc={0x74:"je",0x75:"jne",0x72:"jb",0x73:"jae",0x76:"jbe",0x77:"ja",
              0x7C:"jl",0x7D:"jge",0x7E:"jle",0x7F:"jg",0xEB:"jmp"};
   if(jcc[op]!==undefined){
@@ -4215,19 +4142,16 @@ function disasmOne(b, i){
     return {text:`${jcc[op]} 0x${target.toString(16).toUpperCase()}`, len:2, comment:cmt};
   }
 
-  // call rel32 (E8)
   if(op===0xE8){
     const d=imm32();
     const target=(i+5+d)>>>0;
     return {text:`call 0x${target.toString(16).toUpperCase()}`, len:5, comment:"appelle une fonction"};
   }
-  // jmp rel32 (E9)
   if(op===0xE9){
     const d=imm32();
     const target=(i+5+d)>>>0;
     return {text:`jmp 0x${target.toString(16).toUpperCase()}`, len:5, comment:"saut long inconditionnel"};
   }
-  // call/jmp indirect via [mem] (FF /2, FF /4)
   if(op===0xFF && b[i+1]!==undefined){
     const modrm=b[i+1];
     const reg=(modrm>>3)&7;
@@ -4235,45 +4159,36 @@ function disasmOne(b, i){
     if(reg===4) return {text:`jmp [...]`, len:6, comment:"saut indirect"};
   }
 
-  // int n
   if(op===0xCD) return {text:`int 0x${hex(b[i+1])}`, len:2, comment:"interruption logicielle"};
 
-  // ── Instructions supplémentaires (désassembleur étendu) ──
-  // xchg eax, reg
   if(op>=0x91&&op<=0x97) return {text:`xchg eax, ${REG32[op-0x90]}`, len:1, comment:"échange deux registres"};
-  // cdq / cwde
   if(op===0x99) return {text:"cdq", len:1, comment:"étend eax vers edx:eax (avant division)"};
   if(op===0x98) return {text:"cwde", len:1, comment:"étend ax vers eax"};
-  // test reg, reg (85 /r)
   if(op===0x85 && b[i+1]!==undefined && ((b[i+1]>>6)&3)===3){
     const modrm=b[i+1];
     return {text:`test ${REG32[modrm&7]}, ${REG32[(modrm>>3)&7]}`, len:2, comment:"test binaire (souvent pour vérifier si zéro)"};
   }
-  // lea reg, [mem] (8D /r) — cas simple
   if(op===0x8D && b[i+1]!==undefined){
     const modrm=b[i+1];
     const reg=(modrm>>3)&7;
     return {text:`lea ${REG32[reg]}, [...]`, len:2, comment:"charge une adresse (calcul d'adresse)"};
   }
-  // mov reg, [mem] et mov [mem], reg (89/8B avec mod!=3) — cas mémoire
   if((op===0x89||op===0x8B) && b[i+1]!==undefined && ((b[i+1]>>6)&3)!==3){
     const modrm=b[i+1];
     const reg=(modrm>>3)&7;
     const rm=modrm&7;
     let len=2;
-    if((modrm&0xC0)===0x40) len=3; // disp8
-    else if((modrm&0xC0)===0x80) len=6; // disp32
-    if(rm===4) len++; // SIB
+    if((modrm&0xC0)===0x40) len=3;
+    else if((modrm&0xC0)===0x80) len=6;
+    if(rm===4) len++;
     if(op===0x8B) return {text:`mov ${REG32[reg]}, [${REG32[rm]}...]`, len, comment:"charge depuis la mémoire"};
     else return {text:`mov [${REG32[rm]}...], ${REG32[reg]}`, len, comment:"écrit en mémoire"};
   }
-  // add/sub/cmp/and/or/xor eax, imm32 (05/2D/3D/25/0D/35)
   const eaxImm={0x05:"add",0x2D:"sub",0x3D:"cmp",0x25:"and",0x0D:"or",0x35:"xor"};
   if(eaxImm[op]!==undefined){
     const v=imm32()>>>0;
     return {text:`${eaxImm[op]} eax, 0x${v.toString(16).toUpperCase()}`, len:5, comment:`${eaxImm[op]} avec une valeur`};
   }
-  // 81 /r : add/sub/cmp/and/or/xor reg, imm32
   if(op===0x81 && b[i+1]!==undefined){
     const modrm=b[i+1];
     const sub={0:"add",1:"or",4:"and",5:"sub",6:"xor",7:"cmp"}[(modrm>>3)&7]||"op";
@@ -4281,7 +4196,6 @@ function disasmOne(b, i){
     const v=(b[i+2]|(b[i+3]<<8)|(b[i+4]<<16)|(b[i+5]<<24))>>>0;
     return {text:`${sub} ${REG32[rm]}, 0x${v.toString(16).toUpperCase()}`, len:6, comment:`${sub} avec une valeur 32 bits`};
   }
-  // Sauts near conditionnels (0F 8x)
   if(op===0x0F && b[i+1]!==undefined && (b[i+1]>=0x80&&b[i+1]<=0x8F)){
     const jcc2={0x84:"je",0x85:"jne",0x82:"jb",0x83:"jae",0x86:"jbe",0x87:"ja",0x8C:"jl",0x8D:"jge",0x8E:"jle",0x8F:"jg"};
     const name=jcc2[b[i+1]]||"jcc";
@@ -4289,12 +4203,10 @@ function disasmOne(b, i){
     const target=(i+6+d)>>>0;
     return {text:`${name} 0x${target.toString(16).toUpperCase()}`, len:6, comment:"saut conditionnel (longue portée)"};
   }
-  // 0F AF : imul reg, reg
   if(op===0x0F && b[i+1]===0xAF && b[i+2]!==undefined){
     const modrm=b[i+2];
     return {text:`imul ${REG32[(modrm>>3)&7]}, ${REG32[modrm&7]}`, len:3, comment:"multiplication signée"};
   }
-  // shl/shr reg, imm8 (C1 /4 /5)
   if(op===0xC1 && b[i+1]!==undefined){
     const modrm=b[i+1];
     const ext=(modrm>>3)&7;
@@ -4302,7 +4214,6 @@ function disasmOne(b, i){
     const name={4:"shl",5:"shr",0:"rol",1:"ror",7:"sar"}[ext]||"shift";
     return {text:`${name} ${REG32[rm]}, ${b[i+2]}`, len:3, comment:"décalage de bits"};
   }
-  // neg/not/mul/div (F7 /r)
   if(op===0xF7 && b[i+1]!==undefined){
     const ext=(b[i+1]>>3)&7;
     const rm=b[i+1]&7;
@@ -4310,13 +4221,11 @@ function disasmOne(b, i){
     if(name) return {text:`${name} ${REG32[rm]}`, len:2, comment:{not:"inverse tous les bits",neg:"négation",mul:"multiplication",imul:"multiplication signée",div:"division",idiv:"division signée"}[name]};
   }
 
-  // Inconnu → afficher l'octet brut
   return {text:`db 0x${hex(op)}`, len:1, comment:"octet non décodé (donnée ou instruction rare)"};
 }
 
 function disassembleCode(){
   if(!hexBytes){return;}
-  // Trouver la section de code (.text) et son offset fichier
   let codeStart=-1, codeSize=0, codeName="";
   try{
     if(hexBytes[0]===0x4D&&hexBytes[1]===0x5A){
@@ -4343,7 +4252,6 @@ function disassembleCode(){
     return;
   }
 
-  // Désassembler jusqu'à 60 instructions ou la fin de la section
   let out=[], pos=codeStart, count=0;
   const end=Math.min(codeStart+codeSize, hexBytes.length);
   while(pos<end && count<200){
@@ -4372,7 +4280,6 @@ function disassembleCode(){
   html+=`</div>`;
   box.innerHTML=html;
 
-  // Rendre les boutons ✏️ cliquables
   box.querySelectorAll(".disasm-edit").forEach(btn=>{
     btn.addEventListener("click",()=>{
       const off=parseInt(btn.dataset.off);
@@ -4383,51 +4290,43 @@ function disassembleCode(){
   log(`Code désassemblé : ${out.length} instructions dans ${codeName}`);
 }
 
-// Mini-assembleur : convertit une instruction texte en octets
-// Gère les instructions courantes. Retourne un tableau d'octets ou null.
 function assembleInstruction(text){
   text=text.trim().toLowerCase().replace(/\s+/g," ");
   const REG={eax:0,ecx:1,edx:2,ebx:3,esp:4,ebp:5,esi:6,edi:7};
 
-  // Instructions simples 1 octet
   if(text==="nop") return [0x90];
   if(text==="ret") return [0xC3];
   if(text==="int3") return [0xCC];
   if(text==="leave") return [0xC9];
 
-  // push/pop reg
   let m=text.match(/^push (\w+)$/);
   if(m && REG[m[1]]!==undefined) return [0x50+REG[m[1]]];
   m=text.match(/^pop (\w+)$/);
   if(m && REG[m[1]]!==undefined) return [0x58+REG[m[1]]];
 
-  // inc/dec reg
   m=text.match(/^inc (\w+)$/);
   if(m && REG[m[1]]!==undefined) return [0x40+REG[m[1]]];
   m=text.match(/^dec (\w+)$/);
   if(m && REG[m[1]]!==undefined) return [0x48+REG[m[1]]];
 
-  // mov reg, imm  (ex: mov eax, 5  ou  mov eax, 0x10)
   m=text.match(/^mov (\w+), (0x[0-9a-f]+|\d+)$/);
   if(m && REG[m[1]]!==undefined){
     const v=m[2].startsWith("0x")?parseInt(m[2],16):parseInt(m[2],10);
     return [0xB8+REG[m[1]], v&0xFF, (v>>8)&0xFF, (v>>16)&0xFF, (v>>24)&0xFF];
   }
 
-  // mov reg, reg
   m=text.match(/^mov (\w+), (\w+)$/);
   if(m && REG[m[1]]!==undefined && REG[m[2]]!==undefined){
     return [0x89, 0xC0 | (REG[m[2]]<<3) | REG[m[1]]];
   }
 
-  // add/sub/cmp reg, reg
   const rr={add:0x01,sub:0x29,cmp:0x39,xor:0x31,and:0x21,or:0x09};
   m=text.match(/^(add|sub|cmp|xor|and|or) (\w+), (\w+)$/);
   if(m && REG[m[2]]!==undefined && REG[m[3]]!==undefined){
     return [rr[m[1]], 0xC0 | (REG[m[3]]<<3) | REG[m[2]]];
   }
 
-  return null; // instruction non reconnue
+  return null;
 }
 
 function openDisasmEditor(off, oldLen){
@@ -4455,15 +4354,13 @@ function openDisasmEditor(off, oldLen){
       msg.innerHTML=`<span style="color:#c00;">⚠️ La nouvelle instruction (${bytes.length} octets) est plus longue que l'ancienne (${oldLen} octets). Ça décalerait le code suivant et le casserait. Choisis une instruction de même taille ou plus courte.</span>`;
       return;
     }
-    // Écrire les octets ; compléter avec des NOP si plus court
     for(let i=0;i<oldLen;i++){
-      hexBytes[off+i] = i<bytes.length ? bytes[i] : 0x90; // padding NOP
+      hexBytes[off+i] = i<bytes.length ? bytes[i] : 0x90;
     }
     const padInfo = bytes.length<oldLen ? ` (complété avec ${oldLen-bytes.length} NOP)` : "";
     msg.innerHTML=`<span style="color:#0a7;">✅ Modifié : ${txt}${padInfo}</span>`+
       `<div style="margin-top:6px;padding:6px 8px;background:#fff8e1;border:1px solid #ffc107;border-radius:4px;color:#8a6d00;font-size:11px;">💾 <b>N'oublie pas d'enregistrer !</b> Ton changement est en mémoire. Pour le garder : descends et clique <b>"Exporter fichier modifié"</b> (télécharge un .exe) ou <b>"Créer variante"</b> (sauvegarde dans l'appli).</div>`;
     renderHex();
-    // Rafraîchir le désassemblage
     setTimeout(disassembleCode, 800);
   });
 }
@@ -4471,15 +4368,13 @@ function openDisasmEditor(off, oldLen){
 $("hexDisasmBtn").addEventListener("click", disassembleCode);
 
 // ═══════════════════════════════════════════════════════════════
-// MODIFICATIONS POSSIBLES — lit le code et propose des changements
-// avec leur effet (pédagogique). Ne modifie rien, propose seulement.
+// MODIFICATIONS POSSIBLES
 // ═══════════════════════════════════════════════════════════════
 function suggestModifications(){
   if(!hexBytes){return;}
   const box=$("hexModsResult");
-  if(box.innerHTML){ box.innerHTML=""; return; } // toggle
+  if(box.innerHTML){ box.innerHTML=""; return; }
 
-  // Analyser toutes les sections
   let codeStart=-1, codeSize=0, headerEnd=0x400;
   const sections=[];
   try{
@@ -4507,7 +4402,6 @@ function suggestModifications(){
   html+=`<div style="font-size:12px;color:#1a4d8a;font-weight:700;margin-bottom:4px;">📋 Modifications possibles — analyse complète</div>`;
   html+=`<div style="font-size:10px;color:#666;margin-bottom:8px;padding:5px 7px;background:#e8f0fc;border-radius:4px;">L'outil a balayé tout le fichier et classé chaque zone. Chaque instruction est expliquée (💡). Clique 👁️ sur une proposition : l'octet se surligne en jaune 🟨 dans la grille, la valeur se pré-remplit, tu n'as plus qu'à cliquer "Appliquer".</div>`;
 
-  // ══ 1. CODE (.text) — instructions ══
   html+=`<div style="font-weight:700;color:#5a2d9b;font-size:11px;margin:8px 0 4px;padding:3px 6px;background:#f0e8ff;border-radius:4px;">🔬 CODE (.text) — instructions <span style="color:#0a7;">🟢 modifiable sans casser</span></div>`;
   const codeMods=[];
   if(codeStart>=0){
@@ -4517,7 +4411,7 @@ function suggestModifications(){
       const ins=disasmOne(hexBytes, pos);
       const op=hexBytes[pos];
       const suggestions=[];
-      let role=""; // ce que fait l'instruction
+      let role="";
 
       if(op===0x01){ role="Additionne deux registres."; suggestions.push({to:"29", effect:"add → sub (soustraction au lieu d'addition)"}); }
       else if(op===0x29){ role="Soustrait deux registres."; suggestions.push({to:"01", effect:"sub → add (addition au lieu de soustraction)"}); }
@@ -4555,19 +4449,16 @@ function suggestModifications(){
     html+=`</div>`;
   });
 
-  // ══ 2. DONNÉES — textes ASCII (en SAUTANT la zone de code) ══
   html+=`<div style="font-weight:600;color:#1a7a35;font-size:11px;margin:10px 0 4px;">📝 Données — textes <span style="color:#0a7;">🟢 modifiable</span></div>`;
   const strings=[];
   let curStr="", curStart=-1;
   const searchEnd=Math.min(hexBytes.length, 60000);
-  // Définir la zone de code à exclure (le texte ne doit pas chevaucher le code)
   const codeEnd = codeStart>=0 ? codeStart+codeSize : 0;
   for(let i=headerEnd;i<searchEnd;i++){
-    // Sauter la zone de code
-    if(codeStart>=0 && i>=codeStart && i<codeEnd){ 
-      if(curStr.length>=4) strings.push({off:curStart, text:curStr}); 
-      curStr=""; curStart=-1; 
-      continue; 
+    if(codeStart>=0 && i>=codeStart && i<codeEnd){
+      if(curStr.length>=4) strings.push({off:curStart, text:curStr});
+      curStr=""; curStart=-1;
+      continue;
     }
     const c=hexBytes[i];
     if(c>=32&&c<127){ if(curStart<0)curStart=i; curStr+=String.fromCharCode(c); }
@@ -4583,26 +4474,17 @@ function suggestModifications(){
     </div>`;
   });
 
-  // ══ 3. EN-TÊTE — champs (avertissement) ══
   html+=`<div style="font-weight:600;color:#c00;font-size:11px;margin:10px 0 4px;">⚠️ En-tête PE — structures <span style="color:#c00;">🔴 modifier casse le fichier</span></div>`;
   html+=`<div style="font-size:10px;color:#888;padding:4px 6px;background:#fff5f5;border:1px solid #f5d5d5;border-radius:4px;margin-bottom:6px;">Ces champs sont vitaux. Chaque proposition ci-dessous <b>casse le fichier</b> si appliquée — c'est pour apprendre à quoi sert chaque octet. Clique 👁️ pour localiser.</div>`;
 
-  // Identifier des champs précis de l'en-tête à proposer
   const headerFields=[];
   try{
     const peOff=hexBytes[0x3C]|(hexBytes[0x3D]<<8)|(hexBytes[0x3E]<<16)|(hexBytes[0x3F]<<24);
-    // Signature MZ
     headerFields.push({off:0, cur:hexBytes[0], to:"00", role:"Signature MZ (4D) — Windows vérifie que le fichier commence par MZ", effect:"casse : plus reconnu comme exécutable"});
-    // e_lfanew (pointeur vers PE)
     headerFields.push({off:0x3C, cur:hexBytes[0x3C], to:"FF", role:"e_lfanew — dit où commence l'en-tête PE", effect:"casse : Windows ne trouve plus l'en-tête PE"});
-    // Signature PE
     headerFields.push({off:peOff, cur:hexBytes[peOff], to:"00", role:"Signature PE (50='P') — marque le début de l'en-tête PE", effect:"casse : en-tête PE invalide"});
-    // Machine
     headerFields.push({off:peOff+4, cur:hexBytes[peOff+4], to:"00", role:"Machine — type de processeur (4C = i386)", effect:"casse : architecture invalide"});
-    // Number of sections
     headerFields.push({off:peOff+6, cur:hexBytes[peOff+6], to:"FF", role:"Nombre de sections — combien de sections dans le fichier", effect:"casse : Windows lit des sections qui n'existent pas"});
-    // AddressOfEntryPoint (dans optional header)
-    const optOff=peOff+24;
     headerFields.push({off:optOff+16, cur:hexBytes[optOff+16], to:"FF", role:"Point d'entrée — où commence l'exécution du programme", effect:"casse : le programme démarre au mauvais endroit → plantage"});
   }catch(e){}
 
@@ -4617,10 +4499,8 @@ function suggestModifications(){
   html+=`</div>`;
   box.innerHTML=html;
 
-  // Rendre chaque proposition cliquable
   box.querySelectorAll(".mod-suggest-item").forEach(item=>{
     item.addEventListener("click",()=>{
-      // Marquer cette proposition comme active (couleur foncée), retirer des autres
       box.querySelectorAll(".mod-suggest-item").forEach(el=>el.classList.remove("mod-active"));
       item.classList.add("mod-active");
       const off=parseInt(item.dataset.off);
@@ -4638,8 +4518,6 @@ function suggestModifications(){
         info.style.display="block";
         const cur=hexBytes[off].toString(16).toUpperCase().padStart(2,"0");
         const curChar=(hexBytes[off]>=32&&hexBytes[off]<127)?String.fromCharCode(hexBytes[off]):"(non affichable)";
-        // isText = seulement si l'octet est dans une zone de DONNÉES (pas le code, pas l'en-tête)
-        // On se base sur data-zone passé par la proposition cliquée
         const zone=item.dataset.zone||"";
         const isText=(zone==="data");
         const isCode=(zone==="code");
@@ -4647,7 +4525,6 @@ function suggestModifications(){
         let infoHtml=`<div style="font-weight:600;color:#e0a800;">🟨 Octet surligné à 0x${off.toString(16).toUpperCase()}</div>`+
           `<div style="font-size:11px;margin-top:2px;">Valeur actuelle : <b style="color:#c00;">${cur}</b>${isText?` (caractère "${curChar}")`:""}${newVal?` → Nouvelle valeur suggérée : <b style="color:#0a7;">${newVal}</b>`:""}</div>`;
         if(isText){
-          // Pré-remplir le champ avec 41 (=A) comme exemple
           $("hexValueInput").value="41";
           const curChar2=(hexBytes[off]>=32&&hexBytes[off]<127)?String.fromCharCode(hexBytes[off]):"?";
           infoHtml+=`<div style="margin-top:6px;padding:6px;background:#f0f8f0;border:1px solid #c5e5c5;border-radius:4px;font-size:10px;">`+
@@ -4678,10 +4555,10 @@ function suggestModifications(){
 $("hexModsBtn").addEventListener("click", suggestModifications);
 
 // ═══════════════════════════════════════════════════════════════
-// RECHERCHE dans le fichier (texte ASCII ou valeur hex)
+// RECHERCHE
 // ═══════════════════════════════════════════════════════════════
-let hexFindMatches=[];   // liste des offsets trouvés
-let hexFindIndex=-1;     // position courante dans les résultats
+let hexFindMatches=[];
+let hexFindIndex=-1;
 
 function hexFindSearch(){
   const box=$("hexFindResult");
@@ -4691,20 +4568,16 @@ function hexFindSearch(){
   const caseSensitive=$("hexFindCase").checked;
   if(!raw.trim()){ box.innerHTML=`<span style="color:#888;">Entre une valeur à chercher.</span>`; return; }
 
-  // Construire le motif d'octets à chercher
   let pattern=[];
   if(type==="hex"){
-    // Parser les octets hex (accepte "4D 5A" ou "4D5A" ou "4d5a")
     const clean=raw.replace(/[^0-9A-Fa-f]/g,"");
     if(clean.length%2!==0){ box.innerHTML=`<span style="color:#c00;">Nombre de chiffres hex impair — vérifie ta valeur.</span>`; return; }
     for(let i=0;i<clean.length;i+=2) pattern.push(parseInt(clean.substr(i,2),16));
   } else {
-    // Texte ASCII
     for(let i=0;i<raw.length;i++) pattern.push(raw.charCodeAt(i)&0xFF);
   }
   if(pattern.length===0){ box.innerHTML=`<span style="color:#c00;">Motif vide.</span>`; return; }
 
-  // Chercher toutes les occurrences
   hexFindMatches=[];
   const b=hexBytes;
   for(let i=0;i<=b.length-pattern.length;i++){
@@ -4712,7 +4585,6 @@ function hexFindSearch(){
     for(let j=0;j<pattern.length;j++){
       let bv=b[i+j], pv=pattern[j];
       if(type==="ascii" && !caseSensitive){
-        // comparaison insensible à la casse pour les lettres
         if(bv>=65&&bv<=90) bv+=32;
         if(pv>=65&&pv<=90) pv+=32;
       }
@@ -4738,7 +4610,6 @@ function hexFindGoTo(idx){
   if(idx<0||idx>=hexFindMatches.length) return;
   hexFindIndex=idx;
   const off=hexFindMatches[idx];
-  // Longueur du motif recherché (pour surligner toute la séquence)
   const type=$("hexFindType").value;
   const raw=$("hexFindValue").value;
   let patLen;
@@ -4759,13 +4630,12 @@ $("hexFindBtn").addEventListener("click", hexFindSearch);
 $("hexFindNext").addEventListener("click", ()=>{ if(hexFindMatches.length) hexFindGoTo((hexFindIndex+1)%hexFindMatches.length); });
 $("hexFindPrev").addEventListener("click", ()=>{ if(hexFindMatches.length) hexFindGoTo((hexFindIndex-1+hexFindMatches.length)%hexFindMatches.length); });
 $("hexFindValue").addEventListener("keydown",(e)=>{ if(e.key==="Enter") hexFindSearch(); });
-// Adapter le placeholder selon le type
 $("hexFindType").addEventListener("change",()=>{
   $("hexFindValue").placeholder = $("hexFindType").value==="hex" ? "ex: 4D 5A 90" : "ex: Module";
 });
 
 // ═══════════════════════════════════════════════════════════════
-// REMPLACER (texte ASCII ou valeur hex), avec option compléter par zéros
+// REMPLACER
 // ═══════════════════════════════════════════════════════════════
 function parsePattern(raw, type){
   if(type==="hex"){
@@ -4790,9 +4660,7 @@ function hexReplace(all){
   if(!findPat||findPat.length===0){ box.innerHTML=`<span style="color:#c00;">Motif de recherche invalide.</span>`; return; }
   if(replPat===null){ box.innerHTML=`<span style="color:#c00;">Motif de remplacement invalide.</span>`; return; }
 
-  // Gérer la différence de taille
   if(replPat.length<findPat.length && pad){
-    // Compléter avec des zéros pour garder la même taille (comme "Pad with Nulls")
     while(replPat.length<findPat.length) replPat.push(0x00);
   }
   if(replPat.length>findPat.length){
@@ -4814,12 +4682,10 @@ function hexReplace(all){
   for(let i=0;i<=b.length-findPat.length;i++){
     if(matchAt(i)){
       if(firstOff<0) firstOff=i;
-      // Écrire le remplacement
       for(let j=0;j<replPat.length;j++) b[i+j]=replPat[j];
-      // Si pad activé et replPat complété, les zéros sont déjà dedans
       count++;
-      if(!all){ break; } // remplacer seulement le premier
-      i+=findPat.length-1; // sauter après le remplacement
+      if(!all){ break; }
+      i+=findPat.length-1;
     }
   }
 
@@ -4846,7 +4712,7 @@ $("hexReplaceType").addEventListener("change",()=>{
   $("hexReplaceWith").placeholder=isHex?"Remplacer (ex: 90 90)":"Remplacer par";
 });
 
-// Tableau de référence : octets courants → instructions
+// Tableau de référence
 const BYTE_REFERENCE=[
   {byte:"90", instr:"nop", desc:"ne fait rien (remplissage)", len:"1 octet"},
   {byte:"C3", instr:"ret", desc:"retourne de la fonction", len:"1 octet"},
@@ -4867,7 +4733,7 @@ const BYTE_REFERENCE=[
 
 $("hexRefBtn").addEventListener("click", () => {
   const box=$("hexRefResult");
-  if(box.innerHTML){ box.innerHTML=""; return; } // toggle
+  if(box.innerHTML){ box.innerHTML=""; return; }
   let html=`<div style="border:1px solid #d89020;border-radius:20px;padding:8px;background:#fffbf5;">`;
   html+=`<div style="font-size:11px;color:#8a5000;font-weight:600;margin-bottom:6px;">📖 Octets courants d'un seul byte — teste-les dans "Valeur hex"</div>`;
   html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:340px;">`;
@@ -4886,9 +4752,8 @@ $("hexRefBtn").addEventListener("click", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// ANALYSE DÉFENSIVE — détection en lecture seule (ne modifie rien)
+// ANALYSE DÉFENSIVE
 // ═══════════════════════════════════════════════════════════════
-
 
 const PACKER_SIGNATURES=[
   {name:"UPX", patterns:["UPX0","UPX1","UPX!"]},
@@ -4904,36 +4769,27 @@ const PACKER_SIGNATURES=[
   {name:"Enigma", patterns:["Enigma"]},
 ];
 
-// Signatures cryptographiques renforcées — plusieurs empreintes par algorithme
-// Détection en lecture seule : reconnaît la présence de crypto, n'exécute rien.
 const CRYPTO_SIGNATURES=[
-  // ── ChaCha20 / XChaCha20 ──
-  {algo:"ChaCha20 / XChaCha20", type:"constante sigma", bytes:[0x65,0x78,0x70,0x61,0x6E,0x64,0x20,0x33,0x32,0x2D,0x62,0x79,0x74,0x65,0x20,0x6B]}, // "expand 32-byte k"
-  {algo:"ChaCha20 / XChaCha20", type:"sigma (mots)", bytes:[0x61,0x70,0x78,0x65]}, // "apxe" — fragment little-endian du 1er mot d'état
-  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl16", bytes:[0xC1,0xC0,0x10]}, // rol reg,16 — rotation typique du QR ChaCha
-  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl12", bytes:[0xC1,0xC0,0x0C]}, // rol reg,12
-  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl8", bytes:[0xC1,0xC0,0x08]}, // rol reg,8
-  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl7", bytes:[0xC1,0xC0,0x07]}, // rol reg,7
-  // ── Salsa20 ──
-  {algo:"Salsa20", type:"constante tau", bytes:[0x65,0x78,0x70,0x61,0x6E,0x64,0x20,0x31,0x36,0x2D,0x62,0x79,0x74,0x65,0x20,0x6B]}, // "expand 16-byte k"
-  // ── AES / Rijndael ──
+  {algo:"ChaCha20 / XChaCha20", type:"constante sigma", bytes:[0x65,0x78,0x70,0x61,0x6E,0x64,0x20,0x33,0x32,0x2D,0x62,0x79,0x74,0x65,0x20,0x6B]},
+  {algo:"ChaCha20 / XChaCha20", type:"sigma (mots)", bytes:[0x61,0x70,0x78,0x65]},
+  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl16", bytes:[0xC1,0xC0,0x10]},
+  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl12", bytes:[0xC1,0xC0,0x0C]},
+  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl8", bytes:[0xC1,0xC0,0x08]},
+  {algo:"ChaCha20 (quarter-round)", type:"motif QR rotl7", bytes:[0xC1,0xC0,0x07]},
+  {algo:"Salsa20", type:"constante tau", bytes:[0x65,0x78,0x70,0x61,0x6E,0x64,0x20,0x31,0x36,0x2D,0x62,0x79,0x74,0x65,0x20,0x6B]},
   {algo:"AES-256 / Rijndael", type:"S-box directe", bytes:[0x63,0x7C,0x77,0x7B,0xF2,0x6B,0x6F,0xC5,0x30,0x01,0x67,0x2B]},
-  {algo:"AES-256 / Rijndael", type:"S-box inverse", bytes:[0x52,0x09,0x6A,0xD5,0x30,0x36,0xA5,0x38,0xBF,0x40,0xA3,0x9E]}, // inv S-box début
-  {algo:"AES-256 / Rijndael", type:"Rcon", bytes:[0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1B,0x36]}, // Rcon
-  {algo:"AES-256 / Rijndael", type:"Te0 (T-table)", bytes:[0xC6,0x63,0x63,0xA5,0xF8,0x7C,0x7C,0x84]}, // table T début
-  // ── AES-NI (instructions processeur) ──
+  {algo:"AES-256 / Rijndael", type:"S-box inverse", bytes:[0x52,0x09,0x6A,0xD5,0x30,0x36,0xA5,0x38,0xBF,0x40,0xA3,0x9E]},
+  {algo:"AES-256 / Rijndael", type:"Rcon", bytes:[0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1B,0x36]},
+  {algo:"AES-256 / Rijndael", type:"Te0 (T-table)", bytes:[0xC6,0x63,0x63,0xA5,0xF8,0x7C,0x7C,0x84]},
   {algo:"AES-NI (matériel)", type:"opcode AESENC", bytes:[0x66,0x0F,0x38,0xDC]},
   {algo:"AES-NI (matériel)", type:"opcode AESDEC", bytes:[0x66,0x0F,0x38,0xDE]},
   {algo:"AES-NI (matériel)", type:"opcode AESKEYGENASSIST", bytes:[0x66,0x0F,0x3A,0xDF]},
-  // ── Poly1305 (souvent avec ChaCha) ──
-  {algo:"Poly1305", type:"clamp mask", bytes:[0xFF,0xFF,0xFF,0x0F,0xFC,0xFF,0xFF,0x0F]}, // masque de clamp partiel
-  // ── Hash (contexte crypto) ──
+  {algo:"Poly1305", type:"clamp mask", bytes:[0xFF,0xFF,0xFF,0x0F,0xFC,0xFF,0xFF,0x0F]},
   {algo:"SHA-256", type:"constantes H", bytes:[0x6A,0x09,0xE6,0x67,0xBB,0x67,0xAE,0x85]},
   {algo:"SHA-512", type:"constantes H", bytes:[0x08,0xC9,0xBC,0xF3,0x67,0xE6,0x09,0x6A]},
   {algo:"MD5", type:"constantes", bytes:[0x67,0x45,0x23,0x01,0xEF,0xCD,0xAB,0x89]},
 ];
 
-// Noms de bibliothèques crypto cherchés dans la table d'imports / les chaînes
 const CRYPTO_IMPORTS=[
   {algo:"libsodium", patterns:["sodium","libsodium"]},
   {algo:"OpenSSL", patterns:["libeay32","ssleay32","libcrypto","EVP_","OpenSSL"]},
@@ -4949,7 +4805,6 @@ function bytesToAscii(bytes){
   return s;
 }
 
-// Cherche une séquence d'octets dans le fichier (Boyer-Moore simplifié)
 function findByteSequence(haystack, needle){
   outer:
   for(let i=0;i<=haystack.length-needle.length;i++){
@@ -4975,8 +4830,6 @@ $("defenseFile").addEventListener("change",()=>{
   r.readAsArrayBuffer(f);
 });
 
-// ── Détection d'API importées par catégorie (côté ANALYSE) ──
-// API légitimes prises isolément ; c'est leur regroupement qui oriente l'analyse.
 const API_CATEGORIES=[
  {key:"injection",label:"Injection de code",weight:22,desc:"écriture/exécution dans un autre processus",
   apis:["virtualallocex","virtualprotectex","writeprocessmemory","readprocessmemory","createremotethread","createremotethreadex","ntcreatethreadex","rtlcreateuserthread","queueuserapc","ntqueueapcthread","setthreadcontext","getthreadcontext","ntunmapviewofsection","zwunmapviewofsection","ntmapviewofsection","setwindowshookex","ntwritevirtualmemory","ntallocatevirtualmemory","ntprotectvirtualmemory"]},
@@ -5004,7 +4857,6 @@ function rvaToOffFields(rva,secs){
     if(rva>=s.vaddr && rva<vEnd) return rva - s.vaddr + s.rawOff; }
   return -1;
 }
-// Énumérateur d'imports autonome (n'utilise aucun global — dédié au fichier de Défense).
 function enumImportsDefense(b,secs,is64,ddb){
   const out=[]; const impRVA=readU32LE(b,ddb+8); if(!impRVA) return out;
   let iOff=rvaToOffFields(impRVA,secs); if(iOff<0) return out;
@@ -5042,7 +4894,6 @@ function categorizeApis(flatFuncs){
   return out;
 }
 
-// Recherche d'un motif d'octets, renvoie tous les offsets (plafonné). Correct et rapide.
 function findAllBytes(hay,needle,maxHits){
   const out=[]; if(!needle.length) return out; const first=needle[0];
   for(let i=0;i<=hay.length-needle.length;i++){
@@ -5052,11 +4903,10 @@ function findAllBytes(hay,needle,maxHits){
   }
   return out;
 }
-// Détecte un/des exécutable(s) PE embarqué(s) — signal de binder/joiner/dropper (lecture seule).
 function detectEmbeddedExecutables(bytes){
   const res=[]; const mz=findAllBytes(bytes,[0x4D,0x5A],500);
   for(const off of mz){
-    if(off===0) continue;                    // le PE principal lui-même
+    if(off===0) continue;
     if(off+0x40>bytes.length) continue;
     const elf=readU32LE(bytes,off+0x3C), peAt=off+elf;
     if(elf>0 && elf<0x1000 && peAt+4<=bytes.length &&
@@ -5068,8 +4918,6 @@ function detectEmbeddedExecutables(bytes){
   return res;
 }
 
-// ══ Détecteur d'indicateurs réseau (lecture seule) ══
-// IP/URL en clair, encodées, XOR mono-octet, structures binaires, zones chiffrées.
 function classifyIPv4(a,b,c,d){
   if(a===127) return "loopback";
   if(a===10) return "privée";
@@ -5091,7 +4939,7 @@ function extractStrings(bytes,minLen,limit){
   return runs;
 }
 function detectNetworkIOCs(bytes){
-  const HEAVY=Math.min(bytes.length,1<<24); // 16 Mio pour les scans lourds
+  const HEAVY=Math.min(bytes.length,1<<24);
   const runs=extractStrings(bytes,4,HEAVY);
   const ipv4=[],ipv6=[],urls=[],domains=[],decIps=[],b64=[],hexIps=[],dyndns=[];
   const seen=new Set();
@@ -5120,7 +4968,6 @@ function detectNetworkIOCs(bytes){
     reDec.lastIndex=0; while((m=reDec.exec(r.s))){ const n=+m[0]; if(n>=16777216&&n<=4294967295){ const a=(n>>>24)&255,b=(n>>>16)&255,c=(n>>>8)&255,d=n&255; const cls=classifyIPv4(a,b,c,d); if(cls==="publique"||cls==="privée") push(decIps,"dec"+n,{ip:`${a}.${b}.${c}.${d}`,n,off:r.off+m.index,cls}); } }
     reB64.lastIndex=0; while((m=reB64.exec(r.s))){ if(m[0].length>200) continue; try{ const dec=atob(m[0]);
       if(/https?:\/\//i.test(dec)||/(\d{1,3}\.){3}\d{1,3}/.test(dec)){ const snip=dec.replace(/[^\x20-\x7e]/g,".").slice(0,80); push(b64,"b"+m[0],{decoded:snip,off:r.off+m.index}); } }catch(e){} } }
-  // sockaddr_in binaire : AF_INET (02 00) + port + IP
   const sockaddr=[];
   for(let i=0;i+8<=HEAVY;i++){
     if(bytes[i]===0x02&&bytes[i+1]===0x00){
@@ -5129,8 +4976,6 @@ function detectNetworkIOCs(bytes){
       if(port>0&&port<=65535&&a>=1&&a<=223&&!(a===b&&b===c&&c===d)){
         const cls=classifyIPv4(a,b,c,d);
         if(cls==="publique"||cls==="privée"){ sockaddr.push({ip:`${a}.${b}.${c}.${d}`,port,off:i,cls}); if(sockaddr.length>=40) break; } } } }
-  // XOR à clé courte (1 à 4 octets) : attaque à texte clair connu sur "http(s)://".
-  // On DÉDUIT la clé depuis l'ancre connue (pas de force brute sur 2^32 clés).
   const xorUrls=[]; const XLIM=Math.min(HEAVY,8<<20); const seenXor=new Set();
   outerXor:
   for(const anchor of ["http://","https://"]){
@@ -5140,13 +4985,13 @@ function detectNetworkIOCs(bytes){
       for(let i=0;i+aLen<=XLIM;i++){
         let allZero=true; const key=new Array(L);
         for(let j=0;j<L;j++){ key[j]=bytes[i+j]^anchor.charCodeAt(j); if(key[j]!==0) allZero=false; }
-        if(allZero) continue;                     // clé nulle = texte clair
+        if(allZero) continue;
         let ok=true;
         for(let j=L;j<aLen;j++){ if((bytes[i+j]^key[j%L])!==anchor.charCodeAt(j)){ ok=false; break; } }
         if(!ok) continue;
         let s=anchor,k=i+aLen;
         while(k<bytes.length&&k<i+aLen+160){ const ch=bytes[k]^key[(k-i)%L]; if(ch<32||ch>=127) break; s+=String.fromCharCode(ch); k++; }
-        const dk="x"+i+"|"+s; if(seenXor.has(dk)) continue; seenXor.add(dk);   // dédup : garde la clé la plus courte
+        const dk="x"+i+"|"+s; if(seenXor.has(dk)) continue; seenXor.add(dk);
         const keyHex=key.map(b=>b.toString(16).padStart(2,"0").toUpperCase()).join(" ");
         xorUrls.push({off:i,key:keyHex,keyLen:L,decoded:s});
         if(xorUrls.length>=60) break outerXor;
@@ -5154,7 +4999,6 @@ function detectNetworkIOCs(bytes){
     }
   }
   const xorTrunc=HEAVY>XLIM;
-  // Zones à haute entropie (indice de donnée chiffrée/compressée — non déchiffrable en statique)
   const entZones=[]; const win=1024;
   let runStart=-1;
   for(let off=0;off+win<=HEAVY;off+=win){
@@ -5165,7 +5009,6 @@ function detectNetworkIOCs(bytes){
   return {ipv4,ipv6,urls,domains,decIps,b64,hexIps,dyndns,sockaddr,xorUrls,entZones,truncated:bytes.length>HEAVY};
 }
 
-// Géolocalisation d'une IP (au clic — la requête part vers un service tiers).
 function flagEmoji(cc){ if(!cc||cc.length!==2) return "🏳️"; return cc.toUpperCase().replace(/./g,c=>String.fromCodePoint(127397+c.charCodeAt(0))); }
 async function fetchGeo(ip){
   try{
@@ -5200,7 +5043,6 @@ async function geoLocateIP(ip,spanId){
 }
 function esc2(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
-// Saut depuis Défense vers l'éditeur Hex à un offset donné (charge le fichier analysé).
 let defenseBytesGlobal=null, defenseFileNameGlobal="", hexDefenseRef=null;
 function defenseJumpToHex(off){
   try{
@@ -5217,7 +5059,6 @@ function defenseJumpToHex(off){
     }
   }catch(e){ console.warn('jump load:',e); }
   if(!hexBytes) return;
-  // Afficher les conteneurs de l'éditeur (comme le fait le bouton Parcourir)
   try{ $("hexEditorBox")&&$("hexEditorBox").classList.remove("hidden"); }catch(e){}
   try{ $("hexSafeBlocks")&&$("hexSafeBlocks").classList.remove("hidden"); }catch(e){}
   try{ if($("hexDisasmBox")) $("hexDisasmBox").classList.remove("hidden"); }catch(e){}
@@ -5243,7 +5084,6 @@ function analyzeDefense(bytes, filename){
 
   const isPE=bytes[0]===0x4D && bytes[1]===0x5A;
 
-  // 1. Packers
   const ascii=bytesToAscii(bytes);
   const packersFound=[]; const packerOffsets={};
   PACKER_SIGNATURES.forEach(p=>{
@@ -5263,7 +5103,6 @@ function analyzeDefense(bytes, filename){
     zones.push({label:`Marqueur packer ${name}`,off:f.off,size:null,detail:`motif « ${f.pat} »`});
   });
 
-  // Détection d'exécutable(s) PE embarqué(s) — binder / joiner / dropper (lecture seule)
   let embedded=[];
   try{ embedded=detectEmbeddedExecutables(bytes); }catch(e){ console.warn('embedded:',e); }
   if(embedded.length){
@@ -5271,7 +5110,6 @@ function analyzeDefense(bytes, filename){
     embedded.forEach((e,i)=>zones.push({label:`PE embarqué #${i+1}`,off:e.off,size:null,detail:`en-tête MZ · signature PE à 0x${e.peOff.toString(16).toUpperCase()}`}));
   }
 
-  // Indicateurs réseau (IP, URL, domaines, XOR, encodages, zones chiffrées)
   let net={ipv4:[],ipv6:[],urls:[],domains:[],decIps:[],b64:[],hexIps:[],dyndns:[],sockaddr:[],xorUrls:[],entZones:[]};
   try{ net=detectNetworkIOCs(bytes); }catch(e){ console.warn('net:',e); }
   const pubIps=net.ipv4.filter(x=>x.cls==="publique");
@@ -5280,7 +5118,6 @@ function analyzeDefense(bytes, filename){
   if(net.sockaddr.length) alerts.push({level:"med",text:`Structure(s) réseau binaire (sockaddr_in) : <b>${net.sockaddr.length}</b>`});
   if(net.b64.length||net.decIps.length||net.hexIps.length) alerts.push({level:"med",text:`IP/URL encodée(s) (base64/entier/hex) : <b>${net.b64.length+net.decIps.length+net.hexIps.length}</b>`});
   if(net.urls.length||pubIps.length||net.domains.length) alerts.push({level:"med",text:`Indicateurs réseau en clair : ${net.urls.length} URL, ${net.ipv4.length} IPv4, ${net.domains.length} domaine(s)`});
-  // Offsets réseau notables dans la cartographie
   net.xorUrls.slice(0,5).forEach(x=>zones.push({label:`URL XOR (clé ${x.key}${x.keyLen>1?", "+x.keyLen+" o":""})`,off:x.off,size:null,detail:x.decoded.slice(0,60)}));
   net.dyndns.slice(0,5).forEach(x=>zones.push({label:`Domaine DNS dynamique`,off:x.off,size:null,detail:x.d}));
   net.hexIps.slice(0,5).forEach(x=>zones.push({label:`IP hexadécimale`,off:x.off,size:null,detail:`${x.hex} → ${x.ip} (${x.cls})`}));
@@ -5288,8 +5125,7 @@ function analyzeDefense(bytes, filename){
   pubIps.slice(0,5).forEach(x=>zones.push({label:`IP publique`,off:x.off,size:null,detail:x.ip}));
   net.urls.slice(0,5).forEach(u=>zones.push({label:`URL`,off:u.off,size:null,detail:u.url.slice(0,60)}));
 
-  // 2. Détection de cryptographie (constantes + opcodes + imports)
-  const cryptoByAlgo={}; // algo -> [{type, offset}]
+  const cryptoByAlgo={};
   CRYPTO_SIGNATURES.forEach(c=>{
     const pos=findByteSequence(bytes,c.bytes);
     if(pos>=0){
@@ -5297,7 +5133,6 @@ function analyzeDefense(bytes, filename){
       cryptoByAlgo[c.algo].push({type:c.type,offset:pos});
     }
   });
-  // Imports crypto (recherche dans les chaînes ASCII)
   const cryptoLibs=[];
   CRYPTO_IMPORTS.forEach(lib=>{
     if(lib.patterns.some(p=>ascii.includes(p))) cryptoLibs.push(lib.algo);
@@ -5318,7 +5153,6 @@ function analyzeDefense(bytes, filename){
     alerts.push({level:"ok",text:"Aucune signature cryptographique détectée (AES, ChaCha20, Salsa20, Poly1305, SHA, imports crypto)"});
   }
 
-  // 3. Sections PE
   let sections=[], entryPoint=0, epSection="?";
   if(isPE){
     try{
@@ -5345,7 +5179,6 @@ function analyzeDefense(bytes, filename){
           secOff+=40;
         }
         sections.forEach(s=>{ if(entryPoint>=s.vaddr && entryPoint<s.vaddr+s.vsize) epSection=s.name; });
-        // Énumération + catégorisation des API importées (fichier de Défense)
         try{
           const magic=readU16LE(bytes,optOff);
           const is64d=(magic===0x020B);
@@ -5357,7 +5190,6 @@ function analyzeDefense(bytes, filename){
             alerts.push({level:strong?"med":"med",text:`API ${h.cat.label.toLowerCase()} : <b>${h.found.slice(0,6).join(", ")}</b>${h.found.length>6?" …":""}`});
           });
         }catch(err){ console.warn('apis:',err); }
-        // Cartographie des zones sensibles (offsets — lecture seule)
         try{
           const magic2=readU16LE(bytes,optOff);
           const is64z=(magic2===0x020B);
@@ -5405,7 +5237,6 @@ function analyzeDefense(bytes, filename){
     alerts.push({level:"med",text:"Fichier non-PE (pas de signature MZ) — analyse des sections ignorée"});
   }
 
-  // 4. Junk code
   let nopRun=0,maxNop=0,int3Run=0,maxInt3=0;
   for(let i=0;i<bytes.length;i++){
     if(bytes[i]===0x90){nopRun++;maxNop=Math.max(maxNop,nopRun);}else nopRun=0;
@@ -5415,9 +5246,7 @@ function analyzeDefense(bytes, filename){
   if(maxInt3>=32) alerts.push({level:"med",text:`Longue série d'INT3 (${maxInt3} octets 0xCC)`});
   if(maxNop<32&&maxInt3<32) alerts.push({level:"ok",text:"Pas de motif de junk code évident"});
 
-  // 4b. Détection de traces de stratégies de modification
   const stratTraces=[];
-  // Longues séries d'un même octet (NOP/zéros/FF/INT3/custom uniforme)
   let runByte=-1,runLen=0,maxRun=0,maxRunByte=-1;
   for(let i=0;i<bytes.length;i++){
     if(bytes[i]===runByte){runLen++;if(runLen>maxRun){maxRun=runLen;maxRunByte=runByte;}}
@@ -5427,13 +5256,11 @@ function analyzeDefense(bytes, filename){
     const bn=maxRunByte.toString(16).toUpperCase().padStart(2,"0");
     stratTraces.push(`Longue série de 0x${bn} (${maxRun} octets) — trace possible de remplissage (Zéros/FF/valeur fixe)`);
   }
-  // Séquence croissante 00 01 02 03… (stratégie "seq")
   let seqLen=0,maxSeq=0;
   for(let i=1;i<bytes.length;i++){
     if(bytes[i]===((bytes[i-1]+1)&0xFF)){seqLen++;maxSeq=Math.max(maxSeq,seqLen);}else seqLen=0;
   }
   if(maxSeq>=24) stratTraces.push(`Séquence croissante détectée (${maxSeq+1} octets 00 01 02…) — trace possible de la stratégie "Séquence"`);
-  // Motif répétitif court (2-8 octets qui se répètent)
   function detectRepeatingPattern(){
     for(let plen=2;plen<=8;plen++){
       let reps=0,maxReps=0;
@@ -5453,17 +5280,14 @@ function analyzeDefense(bytes, filename){
     alerts.push({level:"ok",text:"Aucune trace évidente de stratégie de modification (motif, séquence, remplissage)"});
   }
 
-  // 5. Profil packé
   const globalEnt=hexEntropy(bytes);
   if(sections.length>0 && sections.length<=3 && globalEnt>7){
     alerts.push({level:"med",text:`Peu de sections (${sections.length}) + entropie globale élevée (${globalEnt.toFixed(2)}/8) — profil typique d'un fichier packé`});
   }
 
-  // ── Rendu ──
   const highCount=alerts.filter(a=>a.level==="high").length;
   const medCount=alerts.filter(a=>a.level==="med").length;
 
-  // ── Score de suspicion : agrégation pondérée des signaux read-only ci-dessus ──
   const suspicion=[]; let score=0;
   const addS=(pts,label)=>{ score+=pts; suspicion.push({pts,label}); };
   if(packersFound.length>0) addS(35,`Packer connu (${packersFound.join(", ")})`);
@@ -5483,7 +5307,6 @@ function analyzeDefense(bytes, filename){
   if(maxNop>=32||maxInt3>=32) addS(8,`Junk code (NOP/INT3)`);
   if(stratTraces.length>0) addS(Math.min(30,stratTraces.length*12),`Trace(s) de modification d'octets`);
   if(sections.length>0 && sections.length<=3 && globalEnt>7) addS(15,`Profil packé (peu de sections + entropie ${globalEnt.toFixed(1)})`);
-  // Facteurs issus des API importées
   for(const h of apiHits) addS(h.cat.weight, `${h.cat.label} (${h.found.length} API)`);
   const injHit=apiHits.find(h=>h.cat.key==="injection");
   if(injHit){
@@ -5519,7 +5342,6 @@ function analyzeDefense(bytes, filename){
     </div>
   </div>`;
 
-  // ── Conclusion probable (diagnostic, lecture seule) ──
   const causes=[];
   if(packersFound.length) causes.push({w:90,title:`Empaquetage / protection (${packersFound.join(", ")})`,
     why:`Fichier reconnu comme packé/protégé. Les moteurs AV signalent très souvent les fichiers packés de façon heuristique, car l'empaquetage masque le vrai code jusqu'à l'exécution.`});
@@ -5584,7 +5406,6 @@ function analyzeDefense(bytes, filename){
     <span style="font-size:11px;color:#666;">Entropie globale : ${globalEnt.toFixed(2)}/8 · Taille : ${(bytes.length/1024).toFixed(1)} Ko</span>
   </div>`;
 
-  // Bandeau verdict : liste ce qui a été détecté avec détails
   const detected=[];
   if(packersFound.length>0) detected.push(`Packer : ${packersFound.join(", ")}`);
   if(embedded.length) detected.push(`PE embarqué : ${embedded.length}`);
@@ -5597,7 +5418,6 @@ function analyzeDefense(bytes, filename){
   if(cryptoLibs.length>0) detected.push(`Bibliothèque crypto : ${[...new Set(cryptoLibs)].join(", ")}`);
   if(stratTraces.length>0){
     stratTraces.forEach(t=>{
-      // Extraire le type court de la trace pour le bandeau
       let court=t;
       if(t.includes("Longue série")) court="Remplissage (série d'octets identiques)";
       else if(t.includes("Séquence croissante")) court="Séquence croissante (00 01 02…)";
@@ -5720,7 +5540,6 @@ function analyzeDefense(bytes, filename){
     html+=`<div style="font-size:10px;color:#888;margin-top:4px;">Point d'entrée : 0x${entryPoint.toString(16).toUpperCase()} (section ${epSection}) · Entropie : ✅ &lt;6.5 · 🟡 6.5-7.0 · 🔴 &gt;7.0</div>`;
   }
 
-  // Note explicative : stratégies détectables vs non détectables
   html+=`<div style="margin-top:14px;padding:10px;background:#eef3fb;border:1px solid #c5d5ee;border-radius:6px;font-size:11px;color:#444;">
     <div style="font-weight:600;color:var(--panel-blue);margin-bottom:6px;">ℹ️ Ce que la détection peut voir (et ne peut pas voir)</div>
     <div style="margin-bottom:4px;"><b style="color:#0a7;">✅ Détectables</b> — laissent une trace reconnaissable :</div>
