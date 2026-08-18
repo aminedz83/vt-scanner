@@ -5165,6 +5165,41 @@ function detectNetworkIOCs(bytes){
   return {ipv4,ipv6,urls,domains,decIps,b64,hexIps,dyndns,sockaddr,xorUrls,entZones,truncated:bytes.length>HEAVY};
 }
 
+// Géolocalisation d'une IP (au clic — la requête part vers un service tiers).
+function flagEmoji(cc){ if(!cc||cc.length!==2) return "🏳️"; return cc.toUpperCase().replace(/./g,c=>String.fromCodePoint(127397+c.charCodeAt(0))); }
+async function fetchGeo(ip){
+  try{
+    const r=await fetch("https://ipwho.is/"+encodeURIComponent(ip));
+    const j=await r.json();
+    if(j && j.success!==false){
+      return { country:j.country||"?", cc:j.country_code||"", city:j.city||"", region:j.region||"",
+        org:(j.connection&&(j.connection.org||j.connection.isp))||"", asn:(j.connection&&j.connection.asn)?("AS"+j.connection.asn):"",
+        flag:(j.flag&&j.flag.emoji)||flagEmoji(j.country_code) };
+    }
+  }catch(e){}
+  try{
+    const r=await fetch("https://ipapi.co/"+encodeURIComponent(ip)+"/json/");
+    const j=await r.json();
+    if(j && !j.error){
+      return { country:j.country_name||"?", cc:j.country_code||"", city:j.city||"", region:j.region||"",
+        org:j.org||"", asn:j.asn||"", flag:flagEmoji(j.country_code) };
+    }
+  }catch(e){}
+  return null;
+}
+async function geoLocateIP(ip,spanId){
+  const el=document.getElementById(spanId); if(!el) return;
+  el.innerHTML=" <span style='color:#888;'>… recherche</span>";
+  try{
+    const g=await fetchGeo(ip);
+    if(!g){ el.innerHTML=" <span style='color:#c00;'>échec (hors-ligne ou service indisponible)</span>"; return; }
+    const loc=[g.city,g.region,g.country].filter(Boolean).join(", ");
+    const net=[g.asn,g.org].filter(Boolean).join(" ");
+    el.innerHTML=` <b>${g.flag} ${esc2(loc||g.country)}</b>${net?` · <span style='color:#666;'>${esc2(net)}</span>`:""}`;
+  }catch(e){ el.innerHTML=" <span style='color:#c00;'>échec</span>"; }
+}
+function esc2(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
 // Saut depuis Défense vers l'éditeur Hex à un offset donné (charge le fichier analysé).
 let defenseBytesGlobal=null, defenseFileNameGlobal="", hexDefenseRef=null;
 function defenseJumpToHex(off){
@@ -5611,14 +5646,16 @@ function analyzeDefense(bytes, filename){
       return `<div style="margin-bottom:7px;"><div style="font-weight:600;font-size:12px;color:${strong?"#a1281f":"#333"};">${label} (${arr.length})</div>
         <div style="font-size:11px;color:#555;margin-top:2px;">${chipRow(arr.slice(0,15),fmt)}${arr.length>15?`<span style="color:#999;"> +${arr.length-15}</span>`:""}</div></div>`; };
     const tag=(txt,off)=>`<span onclick="defenseJumpToHex(${off})" title="Ouvrir dans l'éditeur Hex" style="cursor:pointer;display:inline-block;font-family:monospace;background:#eef6f0;border:1px solid #cfe3d6;border-radius:4px;padding:0 5px;margin:2px 3px 0 0;">${esc(txt)} <span style="color:#2b8fe6;text-decoration:underline;">@${hxn(off)}</span></span>`;
+    const locateCtl=(ip,off,cls)=>{ if(cls!=="publique") return ""; const gid="geo-"+off;
+      return `<button onclick="geoLocateIP('${ip}','${gid}')" title="Géolocaliser (requête vers un service tiers)" style="font-size:10px;padding:0 6px;margin:2px 4px 2px 0;border-radius:8px;cursor:pointer;border:1px solid #bcd;background:#eef4fb;">🌍 localiser</button><span id="${gid}" style="font-size:11px;color:#1a5e8a;"></span>`; };
     html+=line("URL masquées par XOR (révélées)",net.xorUrls,x=>tag(x.decoded.slice(0,50)+" [clé "+x.key+(x.keyLen>1?" · "+x.keyLen+" o":"")+"]",x.off));
     html+=line("⚑ Domaines DNS dynamique / No-IP",net.dyndns,d=>tag(d.d,d.off),true);
-    html+=line("sockaddr_in (IP:port binaire)",net.sockaddr,s=>tag(`${s.ip}:${s.port}`,s.off));
-    html+=line("IP hexadécimale",net.hexIps,x=>tag(`${x.hex} → ${x.ip}${x.conf==="faible"?" (faible conf.)":""}`,x.off));
+    html+=line("sockaddr_in (IP:port binaire)",net.sockaddr,s=>tag(`${s.ip}:${s.port}`,s.off)+locateCtl(s.ip,s.off,s.cls));
+    html+=line("IP hexadécimale",net.hexIps,x=>tag(`${x.hex} → ${x.ip}${x.conf==="faible"?" (faible conf.)":""}`,x.off)+locateCtl(x.ip,x.off,x.cls));
     html+=line("IP/URL encodées (base64)",net.b64,b=>tag(b.decoded.slice(0,40),b.off));
-    html+=line("IP en entier décimal",net.decIps,d=>tag(`${d.ip} (${d.n})`,d.off));
+    html+=line("IP en entier décimal",net.decIps,d=>tag(`${d.ip} (${d.n})`,d.off)+locateCtl(d.ip,d.off,d.cls));
     html+=line("URL en clair",net.urls,u=>tag(u.url.slice(0,50),u.off));
-    html+=line("IPv4",net.ipv4,x=>tag(`${x.ip} · ${x.cls}`,x.off));
+    html+=line("IPv4",net.ipv4,x=>tag(`${x.ip} · ${x.cls}`,x.off)+locateCtl(x.ip,x.off,x.cls));
     html+=line("IPv6",net.ipv6,x=>tag(x.ip,x.off));
     html+=line("Domaines",net.domains,d=>tag(d.d,d.off));
     if(net.entZones.length){
@@ -5627,7 +5664,7 @@ function analyzeDefense(bytes, filename){
         <div style="font-size:11px;color:#555;margin-top:2px;">${net.entZones.slice(0,10).map(z=>tag(`${(z.size/1024).toFixed(1)} Ko`,z.off)).join("")}${net.entZones.length>10?`<span style="color:#999;"> +${net.entZones.length-10}</span>`:""}</div></div>`;
       html+=`<div style="font-size:10.5px;color:#a86500;margin-top:2px;">⚠️ ~${totalKo.toFixed(0)} Ko de données possiblement chiffrées/compressées. Le contenu <b>chiffré</b> n'est <b>pas déchiffrable</b> par analyse statique — seule sa présence est signalée (une IP réellement chiffrée est ici indistinguable d'aléatoire).</div>`;
     }
-    html+=`<div style="font-size:10.5px;color:#888;margin-top:6px;border-top:1px dashed #e0e0e0;padding-top:5px;">Chaque indicateur est donné avec son offset (@0x…), cliquable pour l'ouvrir dans l'éditeur hex. Le XOR à clé courte (1 à 4 octets) est cassé automatiquement par texte clair connu ; un chiffrement réel (AES, RC4, XOR à longue clé…) ne l'est pas — c'est une limite mathématique, pas de l'outil.</div>`;
+    html+=`<div style="font-size:10.5px;color:#888;margin-top:6px;border-top:1px dashed #e0e0e0;padding-top:5px;">Chaque indicateur est donné avec son offset (@0x…), cliquable pour l'ouvrir dans l'éditeur hex. Le XOR à clé courte (1 à 4 octets) est cassé automatiquement par texte clair connu ; un chiffrement réel (AES, RC4, XOR à longue clé…) ne l'est pas — c'est une limite mathématique, pas de l'outil. <br>🌍 « localiser » interroge un service tiers (ipwho.is) et lui <b>envoie l'IP</b> : à n'utiliser que si tu acceptes d'exposer l'adresse enquêtée. Rien n'est envoyé sans ton clic.</div>`;
     if(net.truncated) html+=`<div style="font-size:10.5px;color:#999;margin-top:3px;">Scan limité aux 16 premiers Mio (fichier volumineux).</div>`;
     html+=`</div>`;
   }
