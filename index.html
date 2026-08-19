@@ -5479,6 +5479,9 @@ function analyzeDefense(bytes, filename){
   }
   // Profil de capacités
   const caps=buildCapabilities(apiHits,net,strs,embedded,packersFound);
+  // Profil "RAT / contrôle à distance" : réseau + capacité de contrôle
+  const ratLike=(!!apiHits.find(h=>h.cat.key==="network")||net.sockaddr.length>0||net.dyndns.length>0||net.xorUrls.length>0||net.ipv4.some(x=>x.cls==="publique"))
+    && !!apiHits.find(h=>["injection","keylog","process","exec"].includes(h.cat.key));
 
   const suspicion=[]; let score=0;
   const addS=(pts,label)=>{ score+=pts; suspicion.push({pts,label}); };
@@ -5546,6 +5549,8 @@ function analyzeDefense(bytes, filename){
     why:`${embedded.length} en-tête(s) PE trouvé(s) à l'intérieur du fichier (à l'offset ${embedded.slice(0,3).map(e=>"0x"+e.off.toString(16).toUpperCase()).join(", ")}${embedded.length>3?"…":""}). Un binaire qui en contient un autre est un schéma classique de binder/dropper, fréquemment marqué par les AV.`});
   else if(binderHeur.detected) causes.push({w:50,title:"Comportement de dropper",
     why:`Signes de dépôt-et-exécution : ${binderHeur.reasons.join(" ; ")}. Un fichier qui lâche puis lance un autre exécutable est un schéma courant de binder/dropper.`});
+  if(ratLike && (net.sockaddr.length||net.dyndns.length||net.xorUrls.length)) causes.push({w:68,title:"Outil de contrôle à distance (RAT) probable",
+    why:`Communication réseau + capacités de contrôle (injection / clavier / processus) + adresse de connexion codée en dur. Profil typique d'un RAT — l'adresse marquée en rouge est le point de contact (C2) probable du programme.`});
   if(net.xorUrls.length) causes.push({w:60,title:"Indicateur réseau dissimulé (URL XOR)",
     why:`${net.xorUrls.length} URL masquée(s) par XOR mono-octet, ex. « ${net.xorUrls[0].decoded.slice(0,50)} ». Cacher une URL indique souvent une adresse de commande (C2) que l'auteur ne voulait pas laisser en clair — signal fort.`});
   else if(net.dyndns.length) causes.push({w:50,title:"Domaine DNS dynamique / No-IP",
@@ -5681,17 +5686,22 @@ function analyzeDefense(bytes, filename){
     const line=(label,arr,fmt,strong)=>{ if(!arr.length) return "";
       return `<div style="margin-bottom:7px;"><div style="font-weight:600;font-size:12px;color:${strong?"#a1281f":"#333"};">${label} (${arr.length})</div>
         <div style="font-size:11px;color:#555;margin-top:2px;">${chipRow(arr.slice(0,15),fmt)}${arr.length>15?`<span style="color:#999;"> +${arr.length-15}</span>`:""}</div></div>`; };
-    const tag=(txt,off)=>`<span onclick="defenseJumpToHex(${off})" title="Ouvrir dans l'éditeur Hex" style="cursor:pointer;display:inline-block;font-family:monospace;background:#eef6f0;border:1px solid #cfe3d6;border-radius:4px;padding:0 5px;margin:2px 3px 0 0;">${esc(txt)} <span style="color:#2b8fe6;text-decoration:underline;">@${hxn(off)}</span></span>`;
+    const c2Net=!!apiHits.find(h=>h.cat.key==="network");
+    const c2Badge=`<span style="background:#c0392b;color:#fff;border-radius:3px;padding:0 4px;margin-left:4px;font-size:9.5px;font-weight:700;vertical-align:middle;">${ratLike?"RAT ?":"C2 probable"}</span>`;
+    const tag=(txt,off,c2)=>`<span onclick="defenseJumpToHex(${off})" title="Ouvrir dans l'éditeur Hex" style="cursor:pointer;display:inline-block;font-family:monospace;background:${c2?"#fdecea":"#eef6f0"};border:1px solid ${c2?"#e08080":"#cfe3d6"};border-radius:4px;padding:0 5px;margin:2px 3px 0 0;">${esc(txt)} <span style="color:${c2?"#c0392b":"#2b8fe6"};text-decoration:underline;">@${hxn(off)}</span>${c2?c2Badge:""}</span>`;
     const locateCtl=(ip,off,cls)=>{ if(cls!=="publique") return ""; const gid="geo-"+off;
       return `<button onclick="geoLocateIP('${ip}','${gid}')" title="Géolocaliser (requête vers un service tiers)" style="font-size:10px;padding:0 6px;margin:2px 4px 2px 0;border-radius:8px;cursor:pointer;border:1px solid #bcd;background:#eef4fb;">🌍 localiser</button><span id="${gid}" style="font-size:11px;color:#1a5e8a;"></span>`; };
-    html+=line("URL masquées par XOR (révélées)",net.xorUrls,x=>tag(x.decoded.slice(0,50)+" [clé "+x.key+(x.keyLen>1?" · "+x.keyLen+" o":"")+"]",x.off));
-    html+=line("⚑ Domaines DNS dynamique / No-IP",net.dyndns,d=>tag(d.d,d.off),true);
-    html+=line("sockaddr_in (IP:port binaire)",net.sockaddr,s=>tag(`${s.ip}:${s.port}`,s.off)+locateCtl(s.ip,s.off,s.cls));
-    html+=line("IP hexadécimale",net.hexIps,x=>tag(`${x.hex} → ${x.ip}${x.conf==="faible"?" (faible conf.)":""}`,x.off)+locateCtl(x.ip,x.off,x.cls));
+    const ipC2=(cls)=> cls==="publique" && (c2Net||ratLike);
+    const urlC2=(u)=> /\/(gate|panel|cmd|bot|connect|c2|api|upload|task|admin)\b|\.php\b/i.test(u) || ratLike;
+    if(ratLike) html+=`<div style="font-size:11px;color:#a1281f;background:#fdecea;border:1px solid #f0b0a8;border-radius:5px;padding:5px 8px;margin-bottom:8px;">⚠️ Profil de type <b>RAT / contrôle à distance</b> — les adresses <b style="color:#c0392b;">en rouge</b> sont les points de connexion (C2) probables du programme.</div>`;
+    html+=line("URL masquées par XOR (révélées)",net.xorUrls,x=>tag(x.decoded.slice(0,50)+" [clé "+x.key+(x.keyLen>1?" · "+x.keyLen+" o":"")+"]",x.off,true));
+    html+=line("⚑ Domaines DNS dynamique / No-IP",net.dyndns,d=>tag(d.d,d.off,true),true);
+    html+=line("sockaddr_in (IP:port binaire)",net.sockaddr,s=>tag(`${s.ip}:${s.port}`,s.off,true)+locateCtl(s.ip,s.off,s.cls));
+    html+=line("IP hexadécimale",net.hexIps,x=>tag(`${x.hex} → ${x.ip}${x.conf==="faible"?" (faible conf.)":""}`,x.off,ipC2(x.cls))+locateCtl(x.ip,x.off,x.cls));
     html+=line("IP/URL encodées (base64)",net.b64,b=>tag(b.decoded.slice(0,40),b.off));
-    html+=line("IP en entier décimal",net.decIps,d=>tag(`${d.ip} (${d.n})`,d.off)+locateCtl(d.ip,d.off,d.cls));
-    html+=line("URL en clair",net.urls,u=>tag(u.url.slice(0,50),u.off));
-    html+=line("IPv4",net.ipv4,x=>tag(`${x.ip} · ${x.cls}`,x.off)+locateCtl(x.ip,x.off,x.cls));
+    html+=line("IP en entier décimal",net.decIps,d=>tag(`${d.ip} (${d.n})`,d.off,ipC2(d.cls))+locateCtl(d.ip,d.off,d.cls));
+    html+=line("URL en clair",net.urls,u=>tag(u.url.slice(0,50),u.off,urlC2(u.url)));
+    html+=line("IPv4",net.ipv4,x=>tag(`${x.ip} · ${x.cls}`,x.off,ipC2(x.cls))+locateCtl(x.ip,x.off,x.cls));
     html+=line("IPv6",net.ipv6,x=>tag(x.ip,x.off));
     html+=line("Domaines",net.domains,d=>tag(d.d,d.off));
     if(net.entZones.length){
