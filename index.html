@@ -5033,18 +5033,28 @@ function detectNetworkIOCs(bytes){
       if(/^(.)\1{7}$/.test(hs)) continue;
       const a=parseInt(hs.slice(0,2),16),b=parseInt(hs.slice(2,4),16),c=parseInt(hs.slice(4,6),16),d=parseInt(hs.slice(6,8),16);
       const cls=classifyIPv4(a,b,c,d);
-      if((cls==="publique")||(prefixed&&cls==="privée")) push(hexIps,"hx"+hs+(r.off+m.index),{ip:`${a}.${b}.${c}.${d}`,hex:(prefixed?"0x":"")+hs,cls,conf:prefixed?"bonne":"faible",off:r.off+m.index}); }
+      if(prefixed && (cls==="publique"||cls==="privée")) push(hexIps,"hx"+hs+(r.off+m.index),{ip:`${a}.${b}.${c}.${d}`,hex:"0x"+hs,cls,conf:"bonne",off:r.off+m.index}); }
     reDec.lastIndex=0; while((m=reDec.exec(r.s))){ const n=+m[0]; if(n>=16777216&&n<=4294967295){ const a=(n>>>24)&255,b=(n>>>16)&255,c=(n>>>8)&255,d=n&255; const cls=classifyIPv4(a,b,c,d); if(cls==="publique"||cls==="privée") push(decIps,"dec"+n,{ip:`${a}.${b}.${c}.${d}`,n,off:r.off+m.index,cls}); } }
     reB64.lastIndex=0; while((m=reB64.exec(r.s))){ if(m[0].length>200) continue; try{ const dec=atob(m[0]);
       if(/https?:\/\//i.test(dec)||/(\d{1,3}\.){3}\d{1,3}/.test(dec)){ const snip=dec.replace(/[^\x20-\x7e]/g,".").slice(0,80); push(b64,"b"+m[0],{decoded:snip,off:r.off+m.index}); } }catch(e){} } }
   const sockaddr=[];
-  for(let i=0;i+8<=HEAVY;i++){
-    if(bytes[i]===0x02&&bytes[i+1]===0x00){
-      const port=(bytes[i+2]<<8)|bytes[i+3];
-      const a=bytes[i+4],b=bytes[i+5],c=bytes[i+6],d=bytes[i+7];
-      if(port>0&&port<=65535&&a>=1&&a<=223&&!(a===b&&b===c&&c===d)){
-        const cls=classifyIPv4(a,b,c,d);
-        if(cls==="publique"||cls==="privée"){ sockaddr.push({ip:`${a}.${b}.${c}.${d}`,port,off:i,cls}); if(sockaddr.length>=40) break; } } } }
+  for(let i=0;i+16<=HEAVY;i++){
+    if(bytes[i]!==0x02||bytes[i+1]!==0x00) continue;
+    // sin_zero : 8 octets de padding à zéro — discriminant fort contre les coïncidences "02 00"
+    let z=true; for(let k=8;k<16;k++){ if(bytes[i+k]!==0){ z=false; break; } }
+    if(!z) continue;
+    const port=(bytes[i+2]<<8)|bytes[i+3];
+    const a=bytes[i+4],b=bytes[i+5],c=bytes[i+6],d=bytes[i+7];
+    if(port<1||port>65535) continue;
+    if(a<1||a>223) continue;                 // 1er octet routable
+    if(d===0||d===255) continue;             // pas adresse réseau/broadcast
+    if(a===b&&b===c&&c===d) continue;
+    if(b===0&&c===0) continue;               // écarte les x.0.0.y improbables
+    const cls=classifyIPv4(a,b,c,d);
+    if(cls!=="publique"&&cls!=="privée") continue;
+    sockaddr.push({ip:`${a}.${b}.${c}.${d}`,port,off:i,cls});
+    if(sockaddr.length>=20) break;
+  }
   const xorUrls=[]; const XLIM=Math.min(HEAVY,8<<20); const seenXor=new Set();
   outerXor:
   for(const anchor of ["http://","https://"]){
@@ -5480,9 +5490,11 @@ function analyzeDefense(bytes, filename){
   }
   // Profil de capacités
   const caps=buildCapabilities(apiHits,net,strs,embedded,packersFound);
-  // Profil "RAT / contrôle à distance" : réseau + capacité de contrôle
-  const ratLike=(!!apiHits.find(h=>h.cat.key==="network")||net.sockaddr.length>0||net.dyndns.length>0||net.xorUrls.length>0||net.ipv4.some(x=>x.cls==="publique"))
-    && !!apiHits.find(h=>["injection","keylog","process","exec"].includes(h.cat.key));
+  // Profil "RAT / contrôle à distance" : point de connexion réel + capacité de contrôle réelle
+  const netConnect = net.sockaddr.length>0 || net.dyndns.length>0 || net.xorUrls.length>0
+    || (!!apiHits.find(h=>h.cat.key==="network") && net.ipv4.some(x=>x.cls==="publique"));
+  const controlCap = !!apiHits.find(h=>["injection","keylog","process"].includes(h.cat.key));
+  const ratLike = netConnect && controlCap;
 
   const suspicion=[]; let score=0;
   const addS=(pts,label)=>{ score+=pts; suspicion.push({pts,label}); };
@@ -5692,8 +5704,8 @@ function analyzeDefense(bytes, filename){
     const tag=(txt,off,c2)=>`<span onclick="defenseJumpToHex(${off})" title="Ouvrir dans l'éditeur Hex" style="cursor:pointer;display:inline-block;font-family:monospace;background:${c2?"#fdecea":"#eef6f0"};border:1px solid ${c2?"#e08080":"#cfe3d6"};border-radius:4px;padding:0 5px;margin:2px 3px 0 0;">${esc(txt)} <span style="color:${c2?"#c0392b":"#2b8fe6"};text-decoration:underline;">@${hxn(off)}</span>${c2?c2Badge:""}</span>`;
     const locateCtl=(ip,off,cls)=>{ if(cls!=="publique") return ""; const gid="geo-"+off;
       return `<button onclick="geoLocateIP('${ip}','${gid}')" title="Géolocaliser (requête vers un service tiers)" style="font-size:10px;padding:0 6px;margin:2px 4px 2px 0;border-radius:8px;cursor:pointer;border:1px solid #bcd;background:#eef4fb;">🌍 localiser</button><span id="${gid}" style="font-size:11px;color:#1a5e8a;"></span>`; };
-    const ipC2=(cls)=> cls==="publique" && (c2Net||ratLike);
-    const urlC2=(u)=> /\/(gate|panel|cmd|bot|connect|c2|api|upload|task|admin)\b|\.php\b/i.test(u) || ratLike;
+    const ipC2=(cls)=> cls==="publique" && ratLike;
+    const urlC2=(u)=> /\/(gate|panel|cmd|bot|connect|c2|beacon)\b/i.test(u) || (ratLike && /\.php\b/i.test(u));
     if(ratLike) html+=`<div style="font-size:11px;color:#a1281f;background:#fdecea;border:1px solid #f0b0a8;border-radius:5px;padding:5px 8px;margin-bottom:8px;">⚠️ Profil de type <b>RAT / contrôle à distance</b> — les adresses <b style="color:#c0392b;">en rouge</b> sont les points de connexion (C2) probables du programme.</div>`;
     html+=line("URL masquées par XOR (révélées)",net.xorUrls,x=>tag(x.decoded.slice(0,50)+" [clé "+x.key+(x.keyLen>1?" · "+x.keyLen+" o":"")+"]",x.off,true));
     html+=line("⚑ Domaines DNS dynamique / No-IP",net.dyndns,d=>tag(d.d,d.off,true),true);
