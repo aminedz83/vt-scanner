@@ -5182,9 +5182,10 @@ async function defenseCheckVT(){
     try{ r=await fetch(`/api/check-hash?hash=${hash}&filename=${encodeURIComponent(defenseFileNameGlobal||"file")}&size=${defenseBytesGlobal.length}`); }
     catch(e){ if(box) box.innerHTML=`<span style="color:#c00;">Impossible de joindre le serveur (hors-ligne ?).</span>`; return; }
     if(r.status===429){ if(box) box.innerHTML=`<span style="color:#c00;">Limite VirusTotal atteinte (4/min). Réessaie dans ~1 minute.</span>`; return; }
-    if(!r.ok){ if(box) box.innerHTML=`<span style="color:#c00;">Erreur serveur (${r.status}).</span>`; return; }
-    const d=await r.json();
-    if(!d.found){ if(box) box.innerHTML=`Ce fichier est <b>inconnu de VirusTotal</b> (hash jamais soumis). <button onclick="window.open('https://www.virustotal.com/gui/file/${hash}','_blank','noopener')" style="cursor:pointer;border-radius:8px;padding:2px 10px;border:1px solid #2b6cb0;background:#2b8fe6;color:#fff;margin-top:5px;">Ouvrir VT pour le soumettre ↗</button>`; return; }
+    const unknownHtml=`Ce fichier est <b>inconnu de VirusTotal</b> (hash jamais soumis — c'est normal pour un fichier local ou fabriqué). <button onclick="window.open('https://www.virustotal.com/gui/file/${hash}','_blank','noopener')" style="cursor:pointer;border-radius:8px;padding:2px 10px;border:1px solid #2b6cb0;background:#2b8fe6;color:#fff;margin-top:5px;">Ouvrir VT pour le soumettre ↗</button>`;
+    if(!r.ok){ if(box) box.innerHTML=unknownHtml; return; }   // 404 = hash absent de la base VT
+    let d; try{ d=await r.json(); }catch(e){ if(box) box.innerHTML=unknownHtml; return; }
+    if(!d || !d.found){ if(box) box.innerHTML=unknownHtml; return; }
     renderDefenseVT(d,box,hash);
   }catch(e){ if(box) box.innerHTML=`<span style="color:#c00;">Échec de la requête.</span>`; }
 }
