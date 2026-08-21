@@ -1671,40 +1671,54 @@ function writeIconIntoPE(renderAt){
   const iOff=rvaToOff(peResources.icons.rva,peSectionsList);
   if(iOff<0){alert("Offset icône introuvable.");return false;}
   const iSize=peResources.icons.size;
+  const b=peBytes;
   let origW=32,origHOff=iOff;
   for(let i=iOff;i<iOff+Math.min(iSize,200)&&i<peBytes.length-4;i++){
-    if(peBytes[i]===0x28&&peBytes[i+1]===0&&peBytes[i+2]===0&&peBytes[i+3]===0){
-      origW=readU32LE(peBytes,i+4)||32;origHOff=i;break;
-    }
+    if(b[i]===0x28&&b[i+1]===0&&b[i+2]===0&&b[i+3]===0){ origW=readU32LE(b,i+4)||32;origHOff=i;break; }
   }
-  const c=renderAt(origW);
-  const ctx=c.getContext('2d');
-  const px=ctx.getImageData(0,0,origW,origW).data;
-  const b=peBytes;
-  const rowStride=origW*4;
-  const newPixSize=origW*rowStride;
-  const needed=40+newPixSize;
-  if(needed>iSize){
-    alert(`Image trop grande pour cette ressource.\n\nEspace disponible : ${iSize} octets\nRequis : ${needed} octets\n\nL'icône cible fait ${origW}×${origW}px.`);
-    return false;
+  const bitCount=readU16LE(b,origHOff+14)||32;
+  const px=renderAt(origW).getContext('2d').getImageData(0,0,origW,origW).data;
+
+  // ── Icônes en couleur pleine (24/32 bits) : écriture 32 bits directe ──
+  if(bitCount>=24 || bitCount===0){
+    const rowStride=origW*4, newPixSize=origW*rowStride, needed=40+newPixSize;
+    if(needed>iSize){ alert(`Image trop grande pour cette ressource.\n\nEspace disponible : ${iSize} octets\nRequis : ${needed} octets\n\nL'icône cible fait ${origW}×${origW}px.`); return false; }
+    let o=origHOff;
+    writeU32LE(b,o,40);writeU32LE(b,o+4,origW);writeU32LE(b,o+8,origW*2);
+    writeU16LE(b,o+12,1);writeU16LE(b,o+14,32);writeU32LE(b,o+16,0);
+    writeU32LE(b,o+20,newPixSize);writeU32LE(b,o+24,0);writeU32LE(b,o+28,0);writeU32LE(b,o+32,0);writeU32LE(b,o+36,0);
+    const pixStart=origHOff+40;
+    for(let row=0;row<origW;row++){ const srcRow=origW-1-row;
+      for(let col=0;col<origW;col++){ const si=(srcRow*origW+col)*4, dst=pixStart+row*rowStride+col*4;
+        if(dst+4<=b.length&&dst<iOff+iSize){ b[dst]=px[si+2];b[dst+1]=px[si+1];b[dst+2]=px[si];b[dst+3]=px[si+3]; } } }
+    return true;
   }
-  let o=origHOff;
-  writeU32LE(b,o,40);writeU32LE(b,o+4,origW);writeU32LE(b,o+8,origW*2);
-  writeU16LE(b,o+12,1);writeU16LE(b,o+14,32);writeU32LE(b,o+16,0);
-  writeU32LE(b,o+20,newPixSize);writeU32LE(b,o+24,0);writeU32LE(b,o+28,0);
-  writeU32LE(b,o+32,0);writeU32LE(b,o+36,0);
-  const pixStart=origHOff+40;
-  for(let row=0;row<origW;row++){
-    const srcRow=origW-1-row;
-    for(let col=0;col<origW;col++){
-      const srcIdx=(srcRow*origW+col)*4;
-      const dstOff=pixStart+row*rowStride+col*4;
-      if(dstOff+4<=b.length&&dstOff<iOff+iSize){
-        b[dstOff]=px[srcIdx+2];b[dstOff+1]=px[srcIdx+1];
-        b[dstOff+2]=px[srcIdx];b[dstOff+3]=px[srcIdx+3];
-      }
-    }
-  }
+
+  // ── Icônes à palette (1/4/8 bits) : on RÉUTILISE la palette cible et on quantifie ──
+  // Même structure que l'originale → même taille → rentre toujours.
+  const palCount=1<<bitCount;
+  const palOff=origHOff+40;
+  const rowBytes=Math.ceil((origW*bitCount)/32)*4;      // ligne XOR, alignée DWORD
+  const andRowBytes=Math.ceil(origW/32)*4;              // ligne masque AND (1bpp)
+  const xorStart=palOff+palCount*4;
+  const andStart=xorStart+rowBytes*origW;
+  const needed=40+palCount*4+rowBytes*origW+andRowBytes*origW;
+  if(needed>iSize){ alert(`Image trop grande pour cette ressource.\n\nEspace disponible : ${iSize} octets\nRequis : ${needed} octets\n\nL'icône cible fait ${origW}×${origW}px en ${bitCount} bits.`); return false; }
+  // Lit la palette existante (entrées BGRA)
+  const pal=[]; for(let i=0;i<palCount;i++){ const po=palOff+i*4; pal.push([b[po+2],b[po+1],b[po]]); }
+  const nearest=(r,g,bl)=>{ let bi=0,bd=Infinity; for(let i=0;i<pal.length;i++){ const dr=r-pal[i][0],dg=g-pal[i][1],db=bl-pal[i][2],d=dr*dr+dg*dg+db*db; if(d<bd){bd=d;bi=i;} } return bi; };
+  const setIdx=(rowStart,col,idx)=>{
+    if(bitCount===8){ b[rowStart+col]=idx&0xff; }
+    else if(bitCount===4){ const bp=rowStart+(col>>1); if((col&1)===0) b[bp]=((idx&0x0f)<<4)|(b[bp]&0x0f); else b[bp]=(b[bp]&0xf0)|(idx&0x0f); }
+    else { const bp=rowStart+(col>>3),bit=7-(col&7); if(idx&1) b[bp]|=(1<<bit); else b[bp]&=~(1<<bit); }
+  };
+  // Efface les zones XOR + AND (garde la palette intacte)
+  for(let i=xorStart;i<andStart+andRowBytes*origW&&i<iOff+iSize;i++) b[i]=0;
+  for(let row=0;row<origW;row++){ const srcRow=origW-1-row, xr=xorStart+row*rowBytes, ar=andStart+row*andRowBytes;
+    for(let col=0;col<origW;col++){ const si=(srcRow*origW+col)*4, a=px[si+3];
+      if(a<128){ const bp=ar+(col>>3); if(bp<iOff+iSize) b[bp]|=(1<<(7-(col&7))); setIdx(xr,col,0); }
+      else setIdx(xr,col,nearest(px[si],px[si+1],px[si+2])); } }
+  writeU32LE(b,origHOff+20,rowBytes*origW+andRowBytes*origW); // biSizeImage
   return true;
 }
 
